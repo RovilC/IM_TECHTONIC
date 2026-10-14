@@ -5,14 +5,14 @@ Imports TechTonic_IM_RHU.Security
 
 Namespace Forms
 
-    ''' <summary>Create or edit a staff account. Pass Nothing for userId to create; password fields are required on create, optional ("leave blank to keep current") on edit.</summary>
+    ''' <summary>Create or edit a staff account. Pass Nothing for userId to create; password fields are required on create, optional ("leave blank to keep current") on edit. New accounts are always created Active -- creating an account is its activation.</summary>
     Public Class AddEditUserDialog
         Inherits Form
 
         Private ReadOnly editingUserId As Integer?
 
         Private txtFullName, txtUsername, txtPassword, txtConfirmPassword, txtContact, txtEmail As TextBox
-        Private cboRole, cboStatus As ComboBox
+        Private cboRole As ComboBox
         Private lblError As Label
         Public Saved As Boolean = False
 
@@ -30,7 +30,7 @@ Namespace Forms
         Public Sub New(userId As Integer?)
             Me.editingUserId = userId
             Me.Text = If(userId.HasValue, "Edit Staff Account", "Add Staff Account")
-            Me.Size = New Size(480, 560)
+            Me.Size = New Size(480, 504)
             Me.StartPosition = FormStartPosition.CenterParent
             Me.FormBorderStyle = FormBorderStyle.FixedDialog
             Me.MaximizeBox = False : Me.MinimizeBox = False
@@ -73,28 +73,22 @@ Namespace Forms
             Me.Controls.Add(txtEmail)
 
             y += 56
-            Me.Controls.Add(New Label With {.Text = "Status", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, y)})
-            cboStatus = New ComboBox With {.Location = New Point(20, y + 20), .Width = 160, .DropDownStyle = ComboBoxStyle.DropDownList}
-            cboStatus.Items.AddRange({"Active", "Inactive"})
-            cboStatus.SelectedIndex = 0
-            Me.Controls.Add(cboStatus)
-
-            y += 56
             lblError = New Label With {.ForeColor = UiTheme.DangerRed, .AutoSize = True, .Location = New Point(20, y), .MaximumSize = New Size(400, 0)}
             Me.Controls.Add(lblError)
 
-            Dim btnCancel As New Button With {.Text = "Cancel", .Size = New Size(100, 36), .Location = New Point(190, 480)}
+            Dim btnCancel As New Button With {.Text = "Cancel", .Size = New Size(100, 36), .Location = New Point(190, 424)}
             UiTheme.StyleSecondaryButton(btnCancel)
             AddHandler btnCancel.Click, Sub() Me.DialogResult = DialogResult.Cancel
             Me.Controls.Add(btnCancel)
 
-            Dim btnSave As New Button With {.Text = "Save", .Size = New Size(110, 36), .Location = New Point(300, 480)}
+            Dim btnSave As New Button With {.Text = "Save", .Size = New Size(110, 36), .Location = New Point(300, 424)}
             UiTheme.StylePrimaryButton(btnSave)
             AddHandler btnSave.Click, AddressOf BtnSave_Click
             Me.Controls.Add(btnSave)
 
             LoadRoles()
             If editingUserId.HasValue Then LoadExisting(editingUserId.Value)
+            UiTheme.GuardUnsavedClose(Me)
         End Sub
 
         Private Sub LoadRoles()
@@ -118,7 +112,6 @@ Namespace Forms
             txtUsername.Text = r("username").ToString()
             txtContact.Text = If(IsDBNull(r("contact_number")), "", r("contact_number").ToString())
             txtEmail.Text = If(IsDBNull(r("email")), "", r("email").ToString())
-            cboStatus.SelectedItem = r("status").ToString()
             Dim roleId = Convert.ToInt32(r("role_id"))
             For Each item As RoleItem In cboRole.Items
                 If item.Id = roleId Then cboRole.SelectedItem = item
@@ -149,33 +142,37 @@ Namespace Forms
                     Return
                 End If
             End If
+            If Not UiTheme.Confirm(Me, If(editingUserId.HasValue,
+                                          $"Save the changes to {txtFullName.Text.Trim()}'s account?",
+                                          $"Create the account ""{txtUsername.Text.Trim()}"" for {txtFullName.Text.Trim()} ({cboRole.Text})?"),
+                                   If(editingUserId.HasValue, "Save Account", "Create Account")) Then Return
 
             Try
                 Dim roleId = CType(cboRole.SelectedItem, RoleItem).Id
                 If editingUserId.HasValue Then
                     If txtPassword.Text.Length > 0 Then
-                        Db.Execute("UPDATE users_staff SET full_name=@FullName, role_id=@RoleId, contact_number=@Contact, email=@Email, status=@Status, password_hash=@PasswordHash WHERE user_id=@Id",
+                        Db.Execute("UPDATE users_staff SET full_name=@FullName, role_id=@RoleId, contact_number=@Contact, email=@Email, password_hash=@PasswordHash WHERE user_id=@Id",
                             New With {
                                 .FullName = txtFullName.Text.Trim(), .RoleId = roleId,
-                                .Contact = EmptyToNull(txtContact.Text), .Email = EmptyToNull(txtEmail.Text), .Status = cboStatus.Text,
+                                .Contact = EmptyToNull(txtContact.Text), .Email = EmptyToNull(txtEmail.Text),
                                 .PasswordHash = PasswordHasher.HashPassword(txtPassword.Text), .Id = editingUserId.Value
                             })
                     Else
-                        Db.Execute("UPDATE users_staff SET full_name=@FullName, role_id=@RoleId, contact_number=@Contact, email=@Email, status=@Status WHERE user_id=@Id",
+                        Db.Execute("UPDATE users_staff SET full_name=@FullName, role_id=@RoleId, contact_number=@Contact, email=@Email WHERE user_id=@Id",
                             New With {
                                 .FullName = txtFullName.Text.Trim(), .RoleId = roleId,
-                                .Contact = EmptyToNull(txtContact.Text), .Email = EmptyToNull(txtEmail.Text), .Status = cboStatus.Text, .Id = editingUserId.Value
+                                .Contact = EmptyToNull(txtContact.Text), .Email = EmptyToNull(txtEmail.Text), .Id = editingUserId.Value
                             })
                     End If
                     AuditLogger.Log("UPDATE", "users", txtUsername.Text.Trim(), $"Updated staff account {txtFullName.Text.Trim()}")
                 Else
                     Db.Execute(
                         "INSERT INTO users_staff (full_name, username, password_hash, role_id, contact_number, email, status, date_created)
-                         VALUES (@FullName, @Username, @PasswordHash, @RoleId, @Contact, @Email, @Status, NOW())",
+                         VALUES (@FullName, @Username, @PasswordHash, @RoleId, @Contact, @Email, 'Active', NOW())",
                         New With {
                             .FullName = txtFullName.Text.Trim(), .Username = txtUsername.Text.Trim(),
                             .PasswordHash = PasswordHasher.HashPassword(txtPassword.Text), .RoleId = roleId,
-                            .Contact = EmptyToNull(txtContact.Text), .Email = EmptyToNull(txtEmail.Text), .Status = cboStatus.Text
+                            .Contact = EmptyToNull(txtContact.Text), .Email = EmptyToNull(txtEmail.Text)
                         })
                     AuditLogger.Log("CREATE", "users", txtUsername.Text.Trim(), $"Created staff account {txtFullName.Text.Trim()}")
                 End If

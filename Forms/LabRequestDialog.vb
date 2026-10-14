@@ -37,13 +37,13 @@ Namespace Forms
 
             Me.Controls.Add(New Label With {.Text = "Priority Level", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, 78)})
             cboPriority = New ComboBox With {.Location = New Point(20, 98), .Width = 200, .DropDownStyle = ComboBoxStyle.DropDownList}
-            cboPriority.Items.AddRange({"Routine", "Urgent", "STAT"})
+            cboPriority.Items.AddRange(LabTestCatalog.PriorityLevels)
             cboPriority.SelectedIndex = 0
             Me.Controls.Add(cboPriority)
 
             Me.Controls.Add(New Label With {.Text = "Specimen Type", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(260, 78)})
             cboSpecimen = New ComboBox With {.Location = New Point(260, 98), .Width = 200, .DropDownStyle = ComboBoxStyle.DropDownList}
-            cboSpecimen.Items.AddRange({"Blood (Venous)", "Blood (Capillary)", "Urine", "Sputum", "Stool", "Swab", "N/A"})
+            cboSpecimen.Items.AddRange(LabTestCatalog.SpecimenTypes)
             cboSpecimen.SelectedIndex = 0
             Me.Controls.Add(cboSpecimen)
 
@@ -84,6 +84,7 @@ Namespace Forms
             UiTheme.StylePrimaryButton(btnSubmit)
             AddHandler btnSubmit.Click, AddressOf BtnSubmit_Click
             Me.Controls.Add(btnSubmit)
+            UiTheme.GuardUnsavedClose(Me)
         End Sub
 
         Private Sub UpdateSelectedCount()
@@ -96,25 +97,30 @@ Namespace Forms
                 lblError.Text = "Select at least one test."
                 Return
             End If
+            If Not UiTheme.Confirm(Me, $"Submit this request for {selected.Count} test(s) to RHU Management?", "Submit Lab Request") Then Return
             Try
                 ' All selected tests are one request from the patient's point of view -- if a
                 ' crash mid-loop left only 2 of 4 checked tests actually inserted, the lab would
                 ' process an incomplete, silently-truncated order with no indication anything
                 ' was missed.
+                ' Every test in this submit shares one request_no so RHU Management approves/refers
+                ' them together (Lab Requests tab) and they print on one external request form.
+                ' New requests start "For Approval" and only reach the lab queue once approved.
+                Dim requestNo = $"LR-{DateTime.Now:yyyyMMdd-HHmmssfff}"
                 Using tx As New DbTransaction()
                     For Each chk In selected
                         tx.Execute(
-                            "INSERT INTO laboratory (encounter_id, requested_by, test_name, test_category, specimen_type, priority_level, clinical_notes, request_date, status)
-                             VALUES (@EncounterId, @RequestedBy, @TestName, @TestCategory, @Specimen, @Priority, @Notes, NOW(), 'Pending')",
+                            "INSERT INTO laboratory (encounter_id, requested_by, test_name, test_category, specimen_type, priority_level, clinical_notes, request_date, status, request_no)
+                             VALUES (@EncounterId, @RequestedBy, @TestName, @TestCategory, @Specimen, @Priority, @Notes, NOW(), 'For Approval', @RequestNo)",
                             New With {
-                                .EncounterId = encounterId, .RequestedBy = Session.Current.UserId, .TestName = chk.Text, .TestCategory = chk.Tag.ToString(),
+                                .EncounterId = encounterId, .RequestedBy = Session.Current.UserId, .TestName = chk.Text, .TestCategory = chk.Tag.ToString(), .RequestNo = requestNo,
                                 .Specimen = cboSpecimen.Text, .Priority = cboPriority.Text,
                                 .Notes = If(String.IsNullOrWhiteSpace(txtNotes.Text), CType(DBNull.Value, Object), txtNotes.Text.Trim())
                             })
                     Next
                     tx.Commit()
                 End Using
-                AuditLogger.Log("CREATE", "lab", $"Encounter #{encounterId}", $"Requested {selected.Count} lab test(s)")
+                AuditLogger.Log("CREATE", "lab", requestNo, $"Requested {selected.Count} lab test(s) for encounter #{encounterId} (for approval)")
                 RequestsSubmitted = True
                 Me.DialogResult = DialogResult.OK
             Catch ex As Exception

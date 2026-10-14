@@ -71,7 +71,7 @@ Namespace Forms
                 If grid.Columns.Contains("Id") Then grid.Columns("Id").Visible = False
                 lblCount.Text = UiTheme.FormatCountLabel(table.Rows.Count, "encounter")
             Catch ex As Exception
-                MessageBox.Show("Could not load encounters: " & ex.Message)
+                UiTheme.ShowError(Me, "load encounters", ex)
             End Try
         End Sub
 

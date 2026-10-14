@@ -82,6 +82,7 @@ Namespace Forms
             Me.Controls.Add(btnDispense)
 
             LoadBatches()
+            UiTheme.GuardUnsavedClose(Me)
         End Sub
 
         Private Sub LoadBatches()
@@ -133,6 +134,7 @@ Namespace Forms
                     Return
                 End If
             End If
+            If Not UiTheme.Confirm(Me, $"Dispense {numQuantity.Value} unit(s)? Stock will be deducted.", "Dispense Medication") Then Return
 
             Try
                 Dim batchId As Object = If(batch IsNot Nothing, CType(batch.BatchId, Object), DBNull.Value)

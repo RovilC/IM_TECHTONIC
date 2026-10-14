@@ -33,10 +33,15 @@ Namespace Forms
 
         Public Const AuditLogsReportIndex As Integer = 8 ' "9. Audit Logs" above -- used by MainDashboardForm's standalone "Audit Logs" sidebar item
 
-        ''' <summary>Pass a specific reportNames index (e.g. AuditLogsReportIndex) to open the shell straight into that report instead of the default Master List.</summary>
-        Public Sub New(Optional initialReportIndex As Integer = 0)
+        ''' <summary>
+        ''' Pass a specific reportNames index (e.g. AuditLogsReportIndex) to open the shell straight into that report instead of the default Master List.
+        ''' With lockToInitialReport, the report list is hidden so the user can only view that one report (used by the standalone "Audit Logs" sidebar item,
+        ''' which roles without the "reports" module -- e.g. System Administrator -- can open).
+        ''' </summary>
+        Public Sub New(Optional initialReportIndex As Integer = 0, Optional lockToInitialReport As Boolean = False)
             InitializeComponent()
             lstReports.SelectedIndex = Math.Max(0, Math.Min(initialReportIndex, reportNames.Length - 1))
+            If lockToInitialReport Then lstReports.Visible = False
         End Sub
 
         Private Sub InitializeComponent()

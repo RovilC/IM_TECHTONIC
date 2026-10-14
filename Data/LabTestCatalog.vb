@@ -15,6 +15,12 @@ Namespace Data
             End Get
         End Property
 
+        ''' <summary>Priority options on the request screen -- shared with the printed external lab request form so both always match.</summary>
+        Public ReadOnly PriorityLevels As String() = {"Routine", "Urgent", "STAT"}
+
+        ''' <summary>Specimen options on the request screen -- shared with the printed external lab request form.</summary>
+        Public ReadOnly SpecimenTypes As String() = {"Blood (Venous)", "Blood (Capillary)", "Urine", "Sputum", "Stool", "Swab", "N/A"}
+
     End Module
 
 End Namespace

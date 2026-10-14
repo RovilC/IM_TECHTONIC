@@ -23,19 +23,29 @@ Namespace Forms
         Private navButtons As New List(Of Button)
         Private currentChildForm As Form = Nothing
 
+        ' Back navigation: drill-in screens (patient profile, registration, encounter) push the view
+        ' they came from; the sidebar starts a fresh history. Each entry re-creates its view.
+        Private ReadOnly backStack As New Stack(Of Action)
+        Private currentView As Action = Nothing
+        Private btnBack As Button
+
         ' (Label, ModuleKey). "Consultation" is special-cased in RebuildNavButtons: it renders as
         ' one parent button that expands a Triage / Encounter dropdown underneath it, instead of
         ' three separate top-level buttons that all used to open the exact same encounter list.
+        ' "registration" deliberately has no sidebar entry: it only grants the Patient Directory's "+ Register Patient" button.
+        ' Likewise "encounters" only grants starting/opening encounters from a patient's profile; the Consultation
+        ' (encounter list) sidebar tab is its own key, "encounter_list", so a role can do encounter work without the tab.
         Private ReadOnly navItems As (String, String)() = {
             ("Dashboard", "dashboard"),
             ("Patient Directory", "patients"),
-            ("Register Patient", "registration"),
             ("Family / Household", "family"),
-            ("Consultation", "encounters"),
+            ("Consultation", "encounter_list"),
             ("Laboratory", "lab"),
             ("Pharmacy", "pharmacy"),
             ("Medicine Inventory", "inventory"),
             ("Medical Certificates", "certificates"),
+            ("Lab Requests", "lab_requests"),
+            ("Med Certs", "medcerts"),
             ("Reports", "reports"),
             ("User Management", "users"),
             ("Roles & Permissions", "roles"),
@@ -60,6 +70,8 @@ Namespace Forms
             BuildHeaderAndContent()
 
             AddHandler Me.Shown, Sub() NavigateTo("dashboard")
+            ' Closing the window with the X still protects unsaved work on the open screen.
+            AddHandler Me.FormClosing, Sub(s, e) If e.CloseReason = CloseReason.UserClosing AndAlso Not ConfirmLeaveCurrent() Then e.Cancel = True
         End Sub
 
         Private Sub BuildSidebar()
@@ -193,6 +205,12 @@ Namespace Forms
             }
             header.Controls.Add(lblPageTitle)
 
+            btnBack = New Button With {.Text = "← Back", .Size = New Size(90, 34), .Location = New Point(24, 15), .Visible = False}
+            UiTheme.StyleSecondaryButton(btnBack)
+            btnBack.Height = 34
+            AddHandler btnBack.Click, Sub() GoBack()
+            header.Controls.Add(btnBack)
+
             lblWelcome = New Label With {
                 .Text = "",
                 .Font = UiTheme.BaseFont,
@@ -219,15 +237,54 @@ Namespace Forms
         End Sub
 
         Private Sub BtnLogout_Click(sender As Object, e As EventArgs)
+            If Not ConfirmLeaveCurrent() Then Return
             Dim confirm = MessageBox.Show("Log out of Project C.A.R.E?", "Confirm Log Out", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
             If confirm = DialogResult.Yes Then
+                currentChildForm = Nothing ' already confirmed; don't ask again while closing
                 AuditLogger.Log("LOGOUT", "auth", Session.Current?.Username, $"{Session.Current?.FullName} signed out")
                 Me.Close()
             End If
         End Sub
 
-        ''' <summary>Swaps the content panel to the requested module. "dashboard" renders the stat-card home view inline.</summary>
+        ''' <summary>Sidebar navigation: opens a module as a fresh starting point (clears the Back history).</summary>
         Public Sub NavigateTo(moduleKey As String, Optional pageTitle As String = Nothing)
+            If Not ConfirmLeaveCurrent() Then Return
+            backStack.Clear()
+            currentView = Sub() ShowModule(moduleKey, pageTitle)
+            currentView.Invoke()
+            UpdateBackButton()
+        End Sub
+
+        ''' <summary>Drill-in navigation: remembers the current view so Back returns to it.</summary>
+        Private Sub GoToView(view As Action)
+            If Not ConfirmLeaveCurrent() Then Return
+            If currentView IsNot Nothing Then backStack.Push(currentView)
+            currentView = view
+            view.Invoke()
+            UpdateBackButton()
+        End Sub
+
+        Private Sub GoBack()
+            If backStack.Count = 0 Then Return
+            If Not ConfirmLeaveCurrent() Then Return
+            currentView = backStack.Pop()
+            currentView.Invoke()
+            UpdateBackButton()
+        End Sub
+
+        Private Sub UpdateBackButton()
+            btnBack.Visible = backStack.Count > 0
+            lblPageTitle.Left = If(btnBack.Visible, btnBack.Right + 14, 24)
+        End Sub
+
+        ''' <summary>Lets a screen with unsaved work (registration, encounter) ask before it is closed.</summary>
+        Private Function ConfirmLeaveCurrent() As Boolean
+            Dim guard = TryCast(currentChildForm, IConfirmLeave)
+            Return guard Is Nothing OrElse guard.ConfirmLeave()
+        End Function
+
+        ''' <summary>Swaps the content panel to the requested module. "dashboard" renders the stat-card home view inline.</summary>
+        Private Sub ShowModule(moduleKey As String, pageTitle As String)
             HighlightActiveButton(moduleKey)
             lblPageTitle.Text = If(pageTitle, "Dashboard")
 
@@ -250,7 +307,7 @@ Namespace Forms
                     childForm = New PatientRegistrationForm(Nothing, AddressOf OnNewPatientRegistered)
                 Case "family"
                     childForm = New FamilyHouseholdForm()
-                Case "encounters"
+                Case "encounters", "encounter_list"
                     childForm = New EncounterListForm(AddressOf OpenEncounterWorkspace)
                 Case "lab"
                     childForm = New LaboratoryForm()
@@ -260,6 +317,10 @@ Namespace Forms
                     childForm = New MedicineInventoryForm()
                 Case "certificates"
                     childForm = New MedicalCertificatesForm()
+                Case "lab_requests"
+                    childForm = New LabRequestApprovalsForm()
+                Case "medcerts"
+                    childForm = New MedCertApprovalsForm()
                 Case "reports"
                     childForm = New ReportsForm()
                 Case "users"
@@ -267,7 +328,7 @@ Namespace Forms
                 Case "roles"
                     childForm = New RolesPermissionsForm()
                 Case "audit"
-                    childForm = New ReportsForm(ReportsForm.AuditLogsReportIndex)
+                    childForm = New ReportsForm(ReportsForm.AuditLogsReportIndex, lockToInitialReport:=True)
                 Case Else
                     childForm = New PlaceholderForm(pageTitle, "This module is not available yet.")
             End Select
@@ -294,6 +355,10 @@ Namespace Forms
 
         ' ---- cross-module navigation callbacks ----
         Private Sub OpenPatientProfile(patientId As Integer)
+            GoToView(Sub() ShowPatientProfile(patientId))
+        End Sub
+
+        Private Sub ShowPatientProfile(patientId As Integer)
             HighlightActiveButton("patients")
             lblPageTitle.Text = "Patient Profile"
             If currentChildForm IsNot Nothing Then
@@ -312,7 +377,7 @@ Namespace Forms
         End Sub
 
         Private Sub OpenRegistration()
-            NavigateTo("registration", "Register Patient")
+            GoToView(Sub() ShowModule("registration", "Register Patient"))
         End Sub
 
         ''' <summary>
@@ -344,6 +409,10 @@ Namespace Forms
         End Sub
 
         Private Sub OpenEncounterWorkspace(encounterId As Integer)
+            GoToView(Sub() ShowEncounterWorkspace(encounterId))
+        End Sub
+
+        Private Sub ShowEncounterWorkspace(encounterId As Integer)
             HighlightActiveButton("encounters")
             lblPageTitle.Text = "Encounter"
             If currentChildForm IsNot Nothing Then
@@ -436,6 +505,12 @@ Namespace Forms
 
                 Dim pendingLab = Db.QueryScalar("SELECT COUNT(*) FROM laboratory WHERE status = 'Pending'")
                 result.Add(("Pending Lab Requests", If(pendingLab, 0).ToString(), UiTheme.WarningAmber))
+
+                Dim labForApproval = Db.QueryScalar("SELECT COUNT(DISTINCT COALESCE(request_no, laboratory_id)) FROM laboratory WHERE status = 'For Approval'")
+                result.Add(("Lab Requests For Issuance", If(labForApproval, 0).ToString(), UiTheme.WarningAmber))
+
+                Dim certsForApproval = Db.QueryScalar("SELECT COUNT(*) FROM other_documents_services WHERE document_type = 'Medical Certificate' AND status = 'For Approval'")
+                result.Add(("Med Certs For Approval", If(certsForApproval, 0).ToString(), UiTheme.WarningAmber))
 
                 Dim lowStock = Db.QueryScalar(
                     "SELECT COUNT(*) FROM (

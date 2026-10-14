@@ -63,6 +63,7 @@ Namespace Forms
 
             LoadSuggestions()
             AddHandler txtName.Leave, AddressOf TxtName_Leave
+            UiTheme.GuardUnsavedClose(Me)
         End Sub
 
         ''' <summary>
@@ -133,6 +134,7 @@ Namespace Forms
                 lblError.Text = "Medicine name is required."
                 Return
             End If
+            If Not UiTheme.Confirm(Me, $"Add ""{txtName.Text.Trim()}"" to the medicine list?", "Add Medicine") Then Return
             Try
                 Db.Execute(
                     "INSERT INTO medicines (medicine_name, category, brand, unit, minimum_stock_level) VALUES (@Name, @Category, @Brand, @Unit, @MinStock)",

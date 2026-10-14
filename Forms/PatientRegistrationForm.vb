@@ -11,6 +11,10 @@ Namespace Forms
     ''' </summary>
     Public Class PatientRegistrationForm
         Inherits Form
+        Implements IConfirmLeave
+
+        Private changes As ChangeTracker
+        Private closeConfirmed As Boolean = False
 
         Private ReadOnly editingPatientId As Integer?
         Private ReadOnly onSaved As Action(Of Integer)
@@ -36,6 +40,16 @@ Namespace Forms
         Private txtEmergName, txtEmergContact As TextBox
         Private cboEmergRelationship As ComboBox
 
+        ' Step 2 -- household membership
+        Private rbHouseholdYes, rbHouseholdNo As RadioButton
+        Private pnlHouseholdExisting As Panel
+        Private cboHousehold As ComboBox
+        Private lblHouseholdInfo As Label
+        Private chkHeadExisting, chkHeadNew As CheckBox
+        Private selectedHousehold As HouseholdItem = Nothing
+        Private loadedFamilyId As Integer? = Nothing
+        Private loadedIsHead As Boolean = False
+
         ' Step 3
         Private cboBloodType, cboMembership, cboPhilhealthStatus, cboPhilhealthCategory As ComboBox
         Private txtAllergies, txtConditions As TextBox
@@ -50,6 +64,29 @@ Namespace Forms
             LoadLookups()
             If editingPatientId.HasValue Then LoadExisting(editingPatientId.Value)
             ShowStep(0)
+            changes = UiTheme.TrackChanges(Me)
+            ' Edit mode runs as a dialog: closing it with the X also asks before discarding edits.
+            AddHandler Me.FormClosing,
+                Sub(s, e)
+                    If Me.Modal AndAlso Not closeConfirmed AndAlso Me.DialogResult <> DialogResult.OK AndAlso Not ConfirmLeave() Then e.Cancel = True
+                End Sub
+        End Sub
+
+        ''' <summary>Asked before leaving the screen (Back / sidebar / log out / closing the edit dialog) while it holds unsaved input.</summary>
+        Public Function ConfirmLeave() As Boolean Implements IConfirmLeave.ConfirmLeave
+            If changes Is Nothing OrElse Not changes.IsDirty Then Return True
+            Return UiTheme.ConfirmDiscard(Me, If(editingPatientId.HasValue, "your changes to this patient record", "this unsaved patient registration"))
+        End Function
+
+        Private Sub BtnCancel_Click()
+            If Not ConfirmLeave() Then Return
+            If editingPatientId.HasValue Then
+                closeConfirmed = True
+                Me.DialogResult = DialogResult.Cancel
+                Me.Close()
+            Else
+                ResetWizard()
+            End If
         End Sub
 
         Private Sub InitializeComponent()
@@ -79,7 +116,7 @@ Namespace Forms
 
             btnCancel = New Button With {.Text = "Cancel", .Size = New Size(100, 36), .Location = New Point(0, 10)}
             UiTheme.StyleSecondaryButton(btnCancel)
-            AddHandler btnCancel.Click, Sub() ResetWizard()
+            AddHandler btnCancel.Click, Sub() BtnCancel_Click()
             pnlButtons.Controls.Add(btnCancel)
 
             btnBack = New Button With {.Text = "<- Back", .Size = New Size(100, 36), .Location = New Point(110, 10)}
@@ -218,8 +255,179 @@ Namespace Forms
             LabeledField(p, "Relationship", 280, 250, cboEmergRelationship, 180)
             txtEmergContact = New TextBox() : LabeledField(p, "Contact No.", 480, 250, txtEmergContact)
 
+            BuildHouseholdSection(p, 310)
+            p.AutoScroll = True
             Return p
         End Function
+
+        ''' <summary>
+        ''' "Is the patient part of a household?" -- Yes: search an existing household (suggestions
+        ''' as you type, pre-filled with households headed by someone sharing the patient's last
+        ''' name) and optionally make the patient its head. No: a new household is registered at
+        ''' the patient's address, with the patient as its head unless unticked.
+        ''' </summary>
+        Private Sub BuildHouseholdSection(p As Panel, y As Integer)
+            p.Controls.Add(New Label With {.Text = "Household", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, y)})
+            p.Controls.Add(New Label With {.Text = "Is the patient part of an existing household? *", .AutoSize = True, .Location = New Point(0, y + 26)})
+
+            Dim radios As New Panel With {.Location = New Point(300, y + 20), .Size = New Size(200, 28)}
+            rbHouseholdYes = New RadioButton With {.Text = "Yes", .AutoSize = True, .Location = New Point(0, 4)}
+            rbHouseholdNo = New RadioButton With {.Text = "No", .AutoSize = True, .Location = New Point(70, 4)}
+            radios.Controls.AddRange({rbHouseholdYes, rbHouseholdNo})
+            p.Controls.Add(radios)
+            AddHandler rbHouseholdYes.CheckedChanged, Sub() UpdateHouseholdPanels()
+            AddHandler rbHouseholdNo.CheckedChanged, Sub() UpdateHouseholdPanels()
+
+            ' -- Yes: pick an existing household --
+            pnlHouseholdExisting = New Panel With {.Location = New Point(0, y + 54), .Size = New Size(760, 110), .Visible = False}
+            pnlHouseholdExisting.Controls.Add(New Label With {.Text = "Search Household (household no., head's name, address or barangay) *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 0)})
+            cboHousehold = New ComboBox With {.Location = New Point(0, 20), .Width = 620}
+            UiTheme.AttachSearchableCombo(cboHousehold, 2, Function(text) SearchHouseholds(text))
+            AddHandler cboHousehold.SelectedIndexChanged,
+                Sub()
+                    selectedHousehold = TryCast(cboHousehold.SelectedItem, HouseholdItem)
+                    UpdateHouseholdInfo()
+                End Sub
+            ' Typing over a picked household invalidates the pick (the search refill keeps the typed text, not the item).
+            AddHandler cboHousehold.TextChanged,
+                Sub()
+                    If selectedHousehold IsNot Nothing AndAlso cboHousehold.Text <> selectedHousehold.Label Then
+                        selectedHousehold = Nothing
+                        UpdateHouseholdInfo()
+                    End If
+                End Sub
+            pnlHouseholdExisting.Controls.Add(cboHousehold)
+            lblHouseholdInfo = New Label With {.AutoSize = True, .ForeColor = UiTheme.TextMuted, .Location = New Point(0, 50), .MaximumSize = New Size(740, 0)}
+            pnlHouseholdExisting.Controls.Add(lblHouseholdInfo)
+            chkHeadExisting = New CheckBox With {.Text = "Patient is the head of this household", .AutoSize = True, .Location = New Point(0, 76)}
+            pnlHouseholdExisting.Controls.Add(chkHeadExisting)
+
+            ' -- No: the same field stays visible, locked and auto-filled with the new household to be registered --
+            chkHeadNew = New CheckBox With {.Text = "Patient is the head of the new household", .AutoSize = True, .Checked = True, .Location = New Point(0, 76), .Visible = False}
+            pnlHouseholdExisting.Controls.Add(chkHeadNew)
+            p.Controls.Add(pnlHouseholdExisting)
+
+            ' Keep the auto-filled new household current when the address/barangay change or the step is re-shown after editing the name.
+            AddHandler txtAddress.TextChanged, Sub() If rbHouseholdNo.Checked Then FillNewHouseholdPreview()
+            AddHandler cboBarangay.SelectedIndexChanged, Sub() If rbHouseholdNo.Checked Then FillNewHouseholdPreview()
+            AddHandler chkHeadNew.CheckedChanged, Sub() If rbHouseholdNo.Checked Then FillNewHouseholdPreview()
+            AddHandler pnlHouseholdExisting.VisibleChanged, Sub() If pnlHouseholdExisting.Visible AndAlso rbHouseholdNo.Checked Then FillNewHouseholdPreview()
+        End Sub
+
+        Private Sub UpdateHouseholdPanels()
+            Dim isNew = rbHouseholdNo.Checked
+            pnlHouseholdExisting.Visible = rbHouseholdYes.Checked OrElse isNew
+            cboHousehold.Enabled = Not isNew
+            chkHeadExisting.Visible = Not isNew
+            chkHeadNew.Visible = isNew
+            If isNew Then
+                selectedHousehold = Nothing
+                cboHousehold.Items.Clear()
+                FillNewHouseholdPreview()
+            ElseIf rbHouseholdYes.Checked Then
+                If cboHousehold.Text.StartsWith(NewHouseholdMarker) Then cboHousehold.Text = ""
+                If selectedHousehold Is Nothing AndAlso cboHousehold.Text.Trim().Length = 0 Then LoadSuggestedHouseholds()
+            End If
+            UpdateHouseholdInfo()
+        End Sub
+
+        Private Const NewHouseholdMarker As String = "(New) "
+
+        ''' <summary>Shows, in the locked search field, the household that "No" will register: next household no., head and address.</summary>
+        Private Sub FillNewHouseholdPreview()
+            Dim householdNo As String
+            Try
+                householdNo = IdGenerator.NextHouseholdNo()
+            Catch
+                householdNo = "HH-(new)"
+            End Try
+            Dim patientName = $"{txtLastName.Text.Trim()}, {txtFirstName.Text.Trim()}".Trim(","c, " "c)
+            Dim head = If(chkHeadNew.Checked AndAlso patientName.Length > 0, patientName, "(none)")
+            Dim barangay = If(cboBarangay.SelectedItem IsNot Nothing, cboBarangay.SelectedItem.ToString(), "")
+            Dim place = String.Join(", ", {txtAddress.Text.Trim(), barangay}.Where(Function(s) s.Length > 0))
+            cboHousehold.Text = $"{NewHouseholdMarker}{householdNo}  -  Head: {head}  -  {If(place.Length > 0, place, "(address not set)")}"
+        End Sub
+
+        Private Sub UpdateHouseholdInfo()
+            If rbHouseholdNo.Checked Then
+                lblHouseholdInfo.Text = "A new household will be registered using the patient's address and barangay above."
+            ElseIf selectedHousehold Is Nothing Then
+                lblHouseholdInfo.Text = "Type at least 2 characters, then pick the household from the suggestions."
+            Else
+                lblHouseholdInfo.Text = $"Head: {If(selectedHousehold.HeadName, "(no head set)")}   |   {selectedHousehold.Members} registered member(s)" &
+                    If(selectedHousehold.HeadName IsNot Nothing AndAlso selectedHousehold.HeadId <> If(editingPatientId, -1), "   --   ticking below replaces the current head", "")
+            End If
+        End Sub
+
+        Private Const HouseholdSearchSql As String =
+            "SELECT f.family_id, f.household_no, f.address, b.barangay_name, f.family_head_id,
+                    CONCAT(h.last_name, ', ', h.first_name) AS head_name,
+                    (SELECT COUNT(*) FROM patients m WHERE m.family_id = f.family_id) AS members
+             FROM families_households f
+             JOIN barangays b ON b.barangay_id = f.barangay_id
+             LEFT JOIN patients h ON h.patient_id = f.family_head_id "
+
+        Private Function SearchHouseholds(text As String) As List(Of Object)
+            Dim results As New List(Of Object)
+            If rbHouseholdNo.Checked Then Return results ' the field shows the auto-filled new household, not a search
+            Try
+                For Each row As DataRow In Db.Query(
+                    HouseholdSearchSql &
+                    "WHERE f.household_no LIKE @Like OR f.address LIKE @Like OR b.barangay_name LIKE @Like
+                        OR h.last_name LIKE @Like OR h.first_name LIKE @Like OR CONCAT(h.last_name, ', ', h.first_name) LIKE @Like
+                     ORDER BY f.household_no LIMIT 20", New With {.Like = "%" & text.Trim() & "%"}).Rows
+                    results.Add(HouseholdItem.FromRow(row))
+                Next
+            Catch
+                ' leave results empty -- the combo just won't show anything this keystroke
+            End Try
+            Return results
+        End Function
+
+        ''' <summary>Suggests households whose head shares the patient's last name (same barangay first) as soon as "Yes" is picked.</summary>
+        Private Sub LoadSuggestedHouseholds()
+            If String.IsNullOrWhiteSpace(txtLastName.Text) Then Return
+            Try
+                Dim barangayId = If(cboBarangay.SelectedItem IsNot Nothing, CType(cboBarangay.SelectedItem, BarangayItem).Id, 0)
+                Dim table = Db.Query(
+                    HouseholdSearchSql &
+                    "WHERE h.last_name = @LastName
+                     ORDER BY (f.barangay_id = @BarangayId) DESC, f.household_no LIMIT 20",
+                    New With {.LastName = txtLastName.Text.Trim(), .BarangayId = barangayId})
+                If table.Rows.Count = 0 Then Return
+                cboHousehold.Items.Clear()
+                For Each row As DataRow In table.Rows
+                    cboHousehold.Items.Add(HouseholdItem.FromRow(row))
+                Next
+                lblHouseholdInfo.Text = $"Suggested: {table.Rows.Count} household(s) headed by a ""{txtLastName.Text.Trim()}"" -- open the list or type to search."
+                cboHousehold.Focus()
+                cboHousehold.DroppedDown = True
+            Catch
+                ' suggestions are a convenience only
+            End Try
+        End Sub
+
+        Private Class HouseholdItem
+            Public Id As Integer
+            Public Label As String
+            Public HeadId As Integer
+            Public HeadName As String
+            Public Members As Integer
+            Public Shared Function FromRow(row As DataRow) As HouseholdItem
+                Dim head = If(IsDBNull(row("head_name")), Nothing, row("head_name").ToString())
+                Dim place = If(IsDBNull(row("address")) OrElse row("address").ToString().Trim() = "", "", row("address").ToString().Trim() & ", ") & row("barangay_name").ToString()
+                Return New HouseholdItem With {
+                    .Id = Convert.ToInt32(row("family_id")),
+                    .HeadId = If(IsDBNull(row("family_head_id")), -1, Convert.ToInt32(row("family_head_id"))),
+                    .HeadName = head,
+                    .Members = Convert.ToInt32(row("members")),
+                    .Label = $"{row("household_no")}  -  Head: {If(head, "(none)")}  -  {place}"
+                }
+            End Function
+            Public Overrides Function ToString() As String
+                Return Label
+            End Function
+        End Class
 
         Private Function BuildStep3() As Panel
             Dim p As New Panel()
@@ -313,6 +521,20 @@ Namespace Forms
             txtConditions.Text = r("existing_conditions").ToString()
             cboPhilhealthStatus.SelectedItem = r("philhealth_status").ToString()
             cboPhilhealthCategory.SelectedItem = r("philhealth_category").ToString()
+
+            If Not IsDBNull(r("family_id")) Then
+                loadedFamilyId = Convert.ToInt32(r("family_id"))
+                loadedIsHead = Convert.ToBoolean(r("family_head_or_no"))
+                Dim hh = Db.Query(HouseholdSearchSql & "WHERE f.family_id = @Id", New With {.Id = loadedFamilyId.Value})
+                If hh.Rows.Count > 0 Then
+                    Dim item = HouseholdItem.FromRow(hh.Rows(0))
+                    rbHouseholdYes.Checked = True
+                    cboHousehold.Items.Clear()
+                    cboHousehold.Items.Add(item)
+                    cboHousehold.SelectedItem = item
+                    chkHeadExisting.Checked = loadedIsHead
+                End If
+            End If
         End Sub
 
         ' ---------------- Wizard flow ----------------
@@ -364,6 +586,15 @@ Namespace Forms
                         lblFormError.Text = "Barangay is required."
                         Return False
                     End If
+                    ' Edit mode may leave an un-linked legacy patient as-is; new registrations must answer.
+                    If Not editingPatientId.HasValue AndAlso Not rbHouseholdYes.Checked AndAlso Not rbHouseholdNo.Checked Then
+                        lblFormError.Text = "Please answer whether the patient is part of an existing household."
+                        Return False
+                    End If
+                    If rbHouseholdYes.Checked AndAlso selectedHousehold Is Nothing Then
+                        lblFormError.Text = "Search and select the patient's household from the suggestions (or choose ""No"" to register a new one)."
+                        Return False
+                    End If
                     Dim contact = txtContact.Text.Trim()
                     Dim altContact = txtAltContact.Text.Trim()
                     Dim emergContact = txtEmergContact.Text.Trim()
@@ -393,13 +624,22 @@ Namespace Forms
                 $"Sex: {cboSex.Text}   Civil Status: {cboCivilStatus.Text}   Occupation: {txtOccupation.Text}" & vbCrLf & vbCrLf &
                 $"Contact: {txtContact.Text}   Alt. Contact: {txtAltContact.Text}" & vbCrLf &
                 $"Address: {txtAddress.Text}, {barangayName}, Vinzons, Camarines Norte" & vbCrLf &
-                $"Emergency Contact: {txtEmergName.Text} ({txtEmergRelationship_Text()}) - {txtEmergContact.Text}" & vbCrLf & vbCrLf &
+                $"Emergency Contact: {txtEmergName.Text} ({txtEmergRelationship_Text()}) - {txtEmergContact.Text}" & vbCrLf &
+                $"Household: {HouseholdReviewText()}" & vbCrLf & vbCrLf &
                 $"Blood Type: {cboBloodType.Text}   Membership: {cboMembership.Text}" & vbCrLf &
                 $"PhilHealth: {cboPhilhealthStatus.Text} / {cboPhilhealthCategory.Text}   No: {txtPhilhealthNo.Text}" & vbCrLf &
                 $"Allergies: {AllergiesOrNA()}" & vbCrLf &
                 $"Existing Conditions: {If(String.IsNullOrWhiteSpace(txtConditions.Text), "None declared", txtConditions.Text)}" & vbCrLf & vbCrLf &
                 "Review all information before saving. Go back to correct any errors."
         End Sub
+
+        Private Function HouseholdReviewText() As String
+            If rbHouseholdYes.Checked AndAlso selectedHousehold IsNot Nothing Then
+                Return selectedHousehold.Label & If(chkHeadExisting.Checked, "  (patient is head)", "  (member)")
+            End If
+            If rbHouseholdNo.Checked Then Return "New household will be registered" & If(chkHeadNew.Checked, " with this patient as head", "")
+            Return "Not linked"
+        End Function
 
         Private Function txtEmergRelationship_Text() As String
             Return If(cboEmergRelationship.SelectedItem IsNot Nothing, cboEmergRelationship.Text, "-")
@@ -410,14 +650,22 @@ Namespace Forms
                 ShowStep(0)
                 Return
             End If
+            If Not UiTheme.Confirm(Me, If(editingPatientId.HasValue,
+                                          "Save the changes to this patient record?",
+                                          $"Register {txtFirstName.Text.Trim()} {txtLastName.Text.Trim()} as a new patient?"),
+                                   If(editingPatientId.HasValue, "Save Changes", "Register Patient")) Then Return
 
             Try
                 Dim barangayId = CType(cboBarangay.SelectedItem, BarangayItem).Id
                 Dim is4ps = (cboMembership.SelectedIndex = 1)
                 Dim isIndigent = (cboMembership.SelectedIndex = 2)
 
+                ' Generated before the transaction opens -- IdGenerator reads on its own connection.
+                Dim newHouseholdNo = If(rbHouseholdNo.Checked, IdGenerator.NextHouseholdNo(), Nothing)
+
                 If editingPatientId.HasValue Then
-                    Db.Execute(
+                    Using tx As New DbTransaction()
+                    tx.Execute(
                         "UPDATE patients SET philhealth_no=@PhilhealthNo, first_name=@FirstName, middle_name=@MiddleName, last_name=@LastName,
                             suffix=@Suffix, date_of_birth=@Dob, sex=@Sex, civil_status=@CivilStatus, occupation=@Occupation,
                             contact_number=@Contact, alternate_contact=@AltContact, address=@Address, barangay_id=@BarangayId,
@@ -427,8 +675,12 @@ Namespace Forms
                             philhealth_status=@PhStatus, philhealth_category=@PhCategory, date_updated = NOW()
                          WHERE patient_id=@Id",
                         BuildSaveParams(barangayId, is4ps, isIndigent, editingPatientId.Value))
+                    ApplyHousehold(tx, editingPatientId.Value, barangayId, newHouseholdNo)
+                    tx.Commit()
+                    End Using
                     AuditLogger.Log("UPDATE", "patients", $"Patient #{editingPatientId.Value}", $"Updated patient {txtLastName.Text}, {txtFirstName.Text}")
                     MessageBox.Show("Patient record updated.", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                    changes.Reset()
                     onSaved?.Invoke(editingPatientId.Value)
                     ' Edit mode is only ever reached via PatientProfileForm's ShowDialog -- safe to close here;
                     ' new-registration mode (the Else branch below) stays open via ResetWizard for rapid re-entry.
@@ -436,7 +688,9 @@ Namespace Forms
                     Me.Close()
                 Else
                     Dim patientNo = IdGenerator.NextPatientNo()
-                    Dim newId = Db.ExecuteInsertReturnId(
+                    Dim newId As Long
+                    Using tx As New DbTransaction()
+                    newId = tx.ExecuteInsertReturnId(
                         "INSERT INTO patients (patient_no, philhealth_no, first_name, middle_name, last_name, suffix, date_of_birth, sex, civil_status,
                             occupation, contact_number, alternate_contact, address, barangay_id, emergency_contact_name, emergency_relationship, emergency_contact_no,
                             blood_type, is_4ps_member, is_indigent, known_allergies, existing_conditions, philhealth_status, philhealth_category,
@@ -446,15 +700,56 @@ Namespace Forms
                             @BloodType, @Is4ps, @IsIndigent, @Allergies, @Conditions, @PhStatus, @PhCategory,
                             'Active', NOW(), @RegisteredBy)",
                         BuildSaveParamsForInsert(patientNo, barangayId, is4ps, isIndigent))
+                    ApplyHousehold(tx, CInt(newId), barangayId, newHouseholdNo)
+                    tx.Commit()
+                    End Using
 
                     AuditLogger.Log("CREATE", "patients", patientNo, $"Registered new patient {txtLastName.Text}, {txtFirstName.Text}")
                     MessageBox.Show($"Patient {patientNo} registered successfully.", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                    changes.Reset() ' saved -- moving on to triage must not ask about discarding
                     onSaved?.Invoke(CInt(newId))
                     ResetWizard()
                 End If
             Catch ex As Exception
                 lblFormError.Text = "Could not save patient: " & ex.Message
+                UiTheme.ShowError(Me, "save the patient", ex)
             End Try
+        End Sub
+
+        ''' <summary>
+        ''' Links the patient to the chosen/new household inside the same transaction as the
+        ''' patient save, and keeps families_households.family_head_id and every member's
+        ''' patients.family_head_or_no flag in agreement (same rule as FamilyHouseholdForm).
+        ''' </summary>
+        Private Sub ApplyHousehold(tx As DbTransaction, patientId As Integer, barangayId As Integer, newHouseholdNo As String)
+            Dim familyId As Integer
+            Dim makeHead As Boolean
+            If rbHouseholdNo.Checked Then
+                familyId = CInt(tx.ExecuteInsertReturnId(
+                    "INSERT INTO families_households (household_no, address, barangay_id, household_status, date_registered)
+                     VALUES (@HouseholdNo, @Address, @BarangayId, 'Active', CURDATE())",
+                    New With {.HouseholdNo = newHouseholdNo, .Address = EmptyToNull(txtAddress.Text), .BarangayId = barangayId}))
+                makeHead = chkHeadNew.Checked
+                AuditLogger.Log("CREATE", "family", newHouseholdNo, $"Registered new household during registration of {txtLastName.Text}, {txtFirstName.Text}")
+            ElseIf rbHouseholdYes.Checked AndAlso selectedHousehold IsNot Nothing Then
+                familyId = selectedHousehold.Id
+                makeHead = chkHeadExisting.Checked
+            Else
+                Return ' edit of a legacy un-linked patient with no answer: leave as-is
+            End If
+
+            ' Leaving a household they headed (moved, or no longer head) clears that household's head.
+            tx.Execute("UPDATE families_households SET family_head_id = NULL, date_updated = NOW()
+                        WHERE family_head_id = @PatientId AND (family_id <> @FamilyId OR @MakeHead = FALSE)",
+                       New With {.PatientId = patientId, .FamilyId = familyId, .MakeHead = makeHead})
+            tx.Execute("UPDATE patients SET family_id = @FamilyId, family_head_or_no = FALSE WHERE patient_id = @PatientId",
+                       New With {.FamilyId = familyId, .PatientId = patientId})
+            If makeHead Then
+                tx.Execute("UPDATE patients SET family_head_or_no = FALSE WHERE family_id = @FamilyId", New With {.FamilyId = familyId})
+                tx.Execute("UPDATE patients SET family_head_or_no = TRUE WHERE patient_id = @PatientId", New With {.PatientId = patientId})
+                tx.Execute("UPDATE families_households SET family_head_id = @PatientId, date_updated = NOW() WHERE family_id = @FamilyId",
+                           New With {.PatientId = patientId, .FamilyId = familyId})
+            End If
         End Sub
 
         Private Function BuildSaveParams(barangayId As Integer, is4ps As Boolean, isIndigent As Boolean, patientId As Integer) As Object
@@ -505,8 +800,12 @@ Namespace Forms
             cboBloodType.SelectedIndex = -1 : cboMembership.SelectedIndex = -1
             txtAllergies.Clear() : txtConditions.Clear()
             cboPhilhealthStatus.SelectedIndex = -1 : cboPhilhealthCategory.SelectedIndex = -1
+            rbHouseholdYes.Checked = False : rbHouseholdNo.Checked = False
+            cboHousehold.Items.Clear() : cboHousehold.Text = "" : selectedHousehold = Nothing
+            chkHeadExisting.Checked = False : chkHeadNew.Checked = True
             lblFormError.Text = ""
             ShowStep(0)
+            changes?.Reset()
         End Sub
 
     End Class

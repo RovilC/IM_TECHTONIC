@@ -74,11 +74,7 @@ Namespace Forms
             Using dlg As New IssueCertificateDialog()
                 If dlg.ShowDialog(Me) = DialogResult.OK Then
                     LoadData()
-                    If dlg.IssuedDocumentId.HasValue Then
-                        Using view As New CertificateViewDialog(dlg.IssuedDocumentId.Value)
-                            view.ShowDialog(Me)
-                        End Using
-                    End If
+                    MessageBox.Show("Medical certificate submitted. It can be printed once RHU Management approves it.", "Submitted", MessageBoxButtons.OK, MessageBoxIcon.Information)
                 End If
             End Using
         End Sub

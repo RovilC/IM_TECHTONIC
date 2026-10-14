@@ -2,6 +2,22 @@ Imports System.Drawing
 
 Namespace Forms
 
+    ''' <summary>Set by UiTheme.TrackChanges when the user edits any watched input.</summary>
+    Public Class ChangeTracker
+        Public Property IsDirty As Boolean
+        Public Sub Reset()
+            IsDirty = False
+        End Sub
+    End Class
+
+    ''' <summary>
+    ''' A screen hosted in the main window that may hold unsaved work. The main window asks
+    ''' before navigating away (sidebar, Back, log out); returning False keeps the user there.
+    ''' </summary>
+    Public Interface IConfirmLeave
+        Function ConfirmLeave() As Boolean
+    End Interface
+
     ''' <summary>Shared colors/fonts so every form matches the proposal's green RHU look (Figures 1-30).</summary>
     Public Module UiTheme
         Public ReadOnly SidebarDark As Color = ColorTranslator.FromHtml("#1B4332")
@@ -21,6 +37,88 @@ Namespace Forms
         Public ReadOnly HeaderFont As New Font("Segoe UI", 16.0F, FontStyle.Bold)
         Public ReadOnly SubHeaderFont As New Font("Segoe UI", 11.0F, FontStyle.Bold)
         Public ReadOnly BoldFont As New Font("Segoe UI", 9.5F, FontStyle.Bold)
+
+        ''' <summary>Yes/No confirmation before a save, submit or other change; No is the default so a stray Enter does nothing.</summary>
+        Public Function Confirm(owner As IWin32Window, message As String, Optional title As String = "Confirm") As Boolean
+            Return MessageBox.Show(owner, message, title, MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) = DialogResult.Yes
+        End Function
+
+        ''' <summary>Asks before throwing away typed-in data (Cancel / Back / leaving a screen).</summary>
+        Public Function ConfirmDiscard(owner As IWin32Window, Optional what As String = "the information you entered") As Boolean
+            Return MessageBox.Show(owner, $"Discard {what}? Unsaved changes will be lost.", "Discard Changes",
+                                   MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) = DialogResult.Yes
+        End Function
+
+        Public Sub ShowSuccess(owner As IWin32Window, message As String, Optional title As String = "Saved")
+            MessageBox.Show(owner, message, title, MessageBoxButtons.OK, MessageBoxIcon.Information)
+        End Sub
+
+        ''' <summary>Uniform error message for a failed operation, with a plain-language hint when the database is unreachable.</summary>
+        Public Sub ShowError(owner As IWin32Window, action As String, ex As Exception)
+            Dim hint = ""
+            If TypeOf ex Is MySqlConnector.MySqlException Then
+                Dim mex = DirectCast(ex, MySqlConnector.MySqlException)
+                If mex.ErrorCode = MySqlConnector.MySqlErrorCode.UnableToConnectToHost Then
+                    hint = vbCrLf & vbCrLf & "The database could not be reached. Check that XAMPP / MySQL is running, then try again."
+                ElseIf mex.ErrorCode = MySqlConnector.MySqlErrorCode.DuplicateKeyEntry Then
+                    hint = vbCrLf & vbCrLf & "A record with the same value already exists."
+                End If
+            End If
+            MessageBox.Show(owner, $"Could not {action}.{vbCrLf}{vbCrLf}{ex.Message}{hint}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Sub
+
+        ''' <summary>
+        ''' Watches every input inside <paramref name="root"/> (text boxes, combos, check/radio
+        ''' buttons, date pickers, numeric boxes, editable grids) and reports whether the user
+        ''' changed anything since this call. Call it AFTER the screen's data has been loaded so
+        ''' the initial fill doesn't count; Reset() after a successful save.
+        ''' </summary>
+        Public Function TrackChanges(root As Control) As ChangeTracker
+            Dim tracker As New ChangeTracker()
+            HookChanges(root, tracker)
+            Return tracker
+        End Function
+
+        ''' <summary>
+        ''' For data-entry dialogs: closing without saving (Cancel, Esc or the X) asks before
+        ''' discarding anything the user typed. Saving sets DialogResult = OK, which skips the
+        ''' question. Call at the end of the dialog's constructor, after its data is loaded.
+        ''' </summary>
+        Public Function GuardUnsavedClose(dialog As Form) As ChangeTracker
+            Dim tracker = TrackChanges(dialog)
+            AddHandler dialog.FormClosing,
+                Sub(s, e)
+                    If dialog.DialogResult = DialogResult.OK OrElse Not tracker.IsDirty Then Return
+                    If e.CloseReason <> CloseReason.UserClosing AndAlso e.CloseReason <> CloseReason.None Then Return
+                    If Not ConfirmDiscard(dialog) Then e.Cancel = True
+                End Sub
+            Return tracker
+        End Function
+
+        Private Sub HookChanges(root As Control, tracker As ChangeTracker)
+            For Each c As Control In root.Controls
+                Dim mark As EventHandler = Sub() If c.Focused OrElse c.ContainsFocus Then tracker.IsDirty = True
+                If TypeOf c Is TextBox Then
+                    AddHandler c.TextChanged, mark
+                ElseIf TypeOf c Is ComboBox Then
+                    AddHandler DirectCast(c, ComboBox).SelectedIndexChanged, mark
+                    AddHandler c.TextChanged, mark
+                ElseIf TypeOf c Is CheckBox Then
+                    AddHandler DirectCast(c, CheckBox).CheckedChanged, mark
+                ElseIf TypeOf c Is RadioButton Then
+                    AddHandler DirectCast(c, RadioButton).CheckedChanged, mark
+                ElseIf TypeOf c Is DateTimePicker Then
+                    AddHandler DirectCast(c, DateTimePicker).ValueChanged, mark
+                ElseIf TypeOf c Is NumericUpDown Then
+                    AddHandler DirectCast(c, NumericUpDown).ValueChanged, mark
+                ElseIf TypeOf c Is DataGridView Then
+                    Dim g = DirectCast(c, DataGridView)
+                    AddHandler g.CellValueChanged, Sub(s, e) If e.RowIndex >= 0 AndAlso g.ContainsFocus Then tracker.IsDirty = True
+                    AddHandler g.UserDeletedRow, Sub() tracker.IsDirty = True
+                End If
+                HookChanges(c, tracker)
+            Next
+        End Sub
 
         Public Sub StylePrimaryButton(btn As Button)
             btn.FlatStyle = FlatStyle.Flat

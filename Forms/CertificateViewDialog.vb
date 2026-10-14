@@ -3,6 +3,7 @@ Imports System.Drawing.Printing
 Imports System.Text
 Imports System.Windows.Forms
 Imports TechTonic_IM_RHU.Data
+Imports TechTonic_IM_RHU.Models
 
 Namespace Forms
 
@@ -14,9 +15,19 @@ Namespace Forms
         Private headerText As String = ""
         Private bodyText As String = ""
         Private txtPreview As RichTextBox
+        Private btnPrint As Button
+        Private lblNotice As Label
+        Private ReadOnly documentId As Integer
+        Private ReadOnly issueMode As Boolean
+        Private referenceNo As String = ""
+        ''' <summary>True once this dialog issued the certificate (issue mode, printed).</summary>
+        Public IssuedNow As Boolean = False
 
-        Public Sub New(documentId As Integer)
-            Me.Text = "Medical Certificate"
+        ''' <param name="issueMode">RHU Management issuing a 'For Approval' certificate: Print issues it then prints; Cancel saves nothing.</param>
+        Public Sub New(documentId As Integer, Optional issueMode As Boolean = False)
+            Me.documentId = documentId
+            Me.issueMode = issueMode
+            Me.Text = If(issueMode, "Issue Medical Certificate", "Medical Certificate")
             Me.Size = New Size(560, 620)
             Me.StartPosition = FormStartPosition.CenterParent
             Me.FormBorderStyle = FormBorderStyle.FixedDialog
@@ -29,32 +40,36 @@ Namespace Forms
             }
             Me.Controls.Add(txtPreview)
 
-            Dim btnClose As New Button With {.Text = "Close", .Size = New Size(100, 36), .Location = New Point(300, 520)}
+            Dim btnClose As New Button With {.Text = If(issueMode, "Cancel", "Close"), .Size = New Size(100, 36), .Location = New Point(300, 520)}
             UiTheme.StyleSecondaryButton(btnClose)
             AddHandler btnClose.Click, Sub() Me.Close()
             Me.Controls.Add(btnClose)
 
-            Dim btnPrint As New Button With {.Text = "Print", .Size = New Size(120, 36), .Location = New Point(410, 520)}
+            lblNotice = New Label With {.ForeColor = UiTheme.WarningAmber, .AutoSize = True, .MaximumSize = New Size(270, 0), .Location = New Point(20, 516)}
+            Me.Controls.Add(lblNotice)
+
+            btnPrint = New Button With {.Text = "Print", .Size = New Size(120, 36), .Location = New Point(410, 520)}
             UiTheme.StylePrimaryButton(btnPrint)
             AddHandler btnPrint.Click, AddressOf BtnPrint_Click
             Me.Controls.Add(btnPrint)
 
-            LoadCertificate(documentId)
+            LoadCertificate()
         End Sub
 
-        Private Sub LoadCertificate(documentId As Integer)
+        Private Sub LoadCertificate()
             Try
                 Dim table = Db.Query(
-                    "SELECT doc.reference_no, doc.purpose, doc.remarks, doc.created_at, doc.status,
+                    "SELECT doc.reference_no, doc.purpose, doc.remarks, COALESCE(doc.approved_at, doc.created_at) AS issued_at, doc.status,
                             CONCAT(p.last_name, ', ', p.first_name, ' ', COALESCE(p.middle_name, '')) AS patient_name,
                             p.date_of_birth, p.sex, p.address, b.barangay_name,
                             TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
-                            u.full_name AS issued_by
+                            u.full_name AS issued_by, ua.full_name AS approved_by
                      FROM other_documents_services doc
                      JOIN encounters e ON e.encounter_id = doc.encounter_id
                      JOIN patients p ON p.patient_id = e.patient_id
                      JOIN barangays b ON b.barangay_id = p.barangay_id
                      LEFT JOIN users_staff u ON u.user_id = doc.created_by
+                     LEFT JOIN users_staff ua ON ua.user_id = doc.approved_by
                      WHERE doc.document_id = @Id", New With {.Id = documentId})
 
                 If table.Rows.Count = 0 Then
@@ -64,6 +79,19 @@ Namespace Forms
 
                 Dim r = table.Rows(0)
 
+                ' Only certificates issued by RHU Management ("Approved" = rows from before the Issue wording) may be printed,
+                ' except in issue mode, where printing is what issues it.
+                Dim status = If(IsDBNull(r("status")), "", r("status").ToString())
+                referenceNo = r("reference_no").ToString()
+                btnPrint.Enabled = True : lblNotice.Text = ""
+                If issueMode AndAlso status = "For Approval" Then
+                    lblNotice.ForeColor = UiTheme.TextMuted
+                    lblNotice.Text = "Review the certificate. Print issues it; Cancel leaves it For Approval."
+                ElseIf status <> "Approved" AndAlso status <> "Issued" Then
+                    btnPrint.Enabled = False
+                    lblNotice.Text = If(status = "Rejected", "This certificate request was rejected.", "Awaiting issuance by RHU Management -- printing is disabled.")
+                End If
+
                 Dim hb As New StringBuilder()
                 hb.AppendLine("RURAL HEALTH UNIT - VINZONS, CAMARINES NORTE")
                 hb.AppendLine("MEDICAL CERTIFICATE")
@@ -71,7 +99,7 @@ Namespace Forms
 
                 Dim sb As New StringBuilder()
                 sb.AppendLine($"Certificate No.: {r("reference_no")}")
-                sb.AppendLine($"Date Issued:     {Convert.ToDateTime(r("created_at")):MMMM dd, yyyy}")
+                sb.AppendLine($"Date Issued:     {Convert.ToDateTime(r("issued_at")):MMMM dd, yyyy}")
                 sb.AppendLine()
                 sb.AppendLine("TO WHOM IT MAY CONCERN:")
                 sb.AppendLine()
@@ -91,7 +119,9 @@ Namespace Forms
                 sb.AppendLine("person for whatever legal purpose it may serve.")
                 sb.AppendLine()
                 sb.AppendLine()
-                sb.AppendLine($"Issued by: {If(IsDBNull(r("issued_by")), "-", r("issued_by"))}")
+                ' created_by prepared the request; approved_by is the RHU Management user who issued it.
+                sb.AppendLine($"Prepared by: {If(IsDBNull(r("issued_by")), "-", r("issued_by"))}")
+                If Not IsDBNull(r("approved_by")) Then sb.AppendLine($"Issued by:   {r("approved_by")}")
                 sb.AppendLine("Rural Health Unit, Vinzons, Camarines Norte")
                 sb.AppendLine()
                 sb.AppendLine("_______________________________")
@@ -130,15 +160,38 @@ Namespace Forms
                 Using pd As New PrintDocument()
                     AddHandler pd.PrintPage, AddressOf PrintPage
                     Using dlg As New PrintDialog With {.Document = pd}
-                        If dlg.ShowDialog(Me) = DialogResult.OK Then
-                            pd.Print()
-                        End If
+                        If dlg.ShowDialog(Me) <> DialogResult.OK Then Return
+                        If issueMode AndAlso Not IssuedNow AndAlso Not IssueCertificate() Then Return
+                        pd.Print()
                     End Using
                 End Using
             Catch ex As Exception
                 MessageBox.Show("Could not print: " & ex.Message & vbCrLf & "(No printer configured? You can still copy the text above.)", "Print Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning)
             End Try
         End Sub
+
+        ''' <summary>Marks the certificate Issued by the current user, then reloads the text so the printout shows who issued it.</summary>
+        Private Function IssueCertificate() As Boolean
+            Try
+                Dim n = Db.Execute(
+                    "UPDATE other_documents_services SET status = 'Issued', approved_by = @UserId, approved_at = NOW(), updated_at = NOW()
+                     WHERE document_id = @Id AND status = 'For Approval'",
+                    New With {.UserId = Session.Current.UserId, .Id = documentId})
+                If n = 0 Then
+                    MessageBox.Show("This certificate is no longer waiting for issuance (someone else may have issued it).", "Issue", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                    LoadCertificate()
+                    Return False
+                End If
+                AuditLogger.Log("UPDATE", "medcerts", referenceNo, "Issued medical certificate")
+                IssuedNow = True
+                Me.Text = "Medical Certificate"
+                LoadCertificate()
+                Return True
+            Catch ex As Exception
+                UiTheme.ShowError(Me, "issue certificate", ex)
+                Return False
+            End Try
+        End Function
 
         ''' <summary>Mirrors RenderPreview's centered-header / left-aligned-body split, but computed against the actual printed font/page width via MeasureString rather than assumed on-screen character counts.</summary>
         Private Sub PrintPage(sender As Object, e As PrintPageEventArgs)

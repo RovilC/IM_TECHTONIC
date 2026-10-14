@@ -17,18 +17,18 @@ USE rhu_care;
 -- Roles  (Table 3. User Levels)
 -- ----------------------------------------------------------------------------
 INSERT INTO roles (role_name, description, module_access, can_add, can_edit, can_delete, can_view, status) VALUES
-('System Administrator', 'Entire system, user accounts, roles, permissions, system settings, audit logs',
- 'dashboard,patients,registration,family,encounters,triage,consultation,lab,pharmacy,inventory,certificates,reports,users,roles,audit', TRUE, TRUE, TRUE, TRUE, 'Active'),
-('RHU Management', 'Overall dashboard, all sections'' reports, statistics, monitoring, approvals',
- 'dashboard,reports,statistics,approvals', TRUE, FALSE, FALSE, TRUE, 'Active'),
-('Records Staff', 'Registration, family/household records, patient directory (summary only -- no clinical/encounter access)',
- 'dashboard,patients,registration,family', TRUE, TRUE, FALSE, TRUE, 'Active'),
+('System Administrator', 'User accounts, roles & permissions; view-only dashboard and audit logs',
+ 'dashboard,users,roles,audit', TRUE, TRUE, TRUE, TRUE, 'Active'),
+('RHU Management', 'Overall dashboard, all sections'' reports, lab request and medical certificate approvals',
+ 'dashboard,reports,lab_requests,medcerts', TRUE, TRUE, FALSE, TRUE, 'Active'),
+('Records Staff', 'Patient directory (registration incl. household, printable read-only record summary -- no encounter entry)',
+ 'dashboard,patients,registration', TRUE, TRUE, FALSE, TRUE, 'Active'),
 ('Healthcare Staff', 'Triage, consultation, diagnosis, procedures, laboratory requests/results',
- 'dashboard,patients,encounters,triage,consultation,lab', TRUE, TRUE, FALSE, TRUE, 'Active'),
+ 'dashboard,patients,encounters', TRUE, TRUE, FALSE, TRUE, 'Active'),
 ('Pharmacy & Inventory Staff', 'Medicine dispensing, batch/lot, inventory, medicine sources, expiration, stock monitoring',
  'dashboard,pharmacy,inventory,dispensing,stock', TRUE, TRUE, FALSE, TRUE, 'Active'),
 ('Laboratory Staff', 'Laboratory requests, test processing, findings/results, release of results, referrals',
- 'dashboard,lab,referrals', TRUE, TRUE, FALSE, TRUE, 'Active');
+ 'dashboard,lab', TRUE, TRUE, FALSE, TRUE, 'Active');
 
 -- ----------------------------------------------------------------------------
 -- Demo users -- password for every account below is:  Admin@123

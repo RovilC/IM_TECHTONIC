@@ -10,7 +10,6 @@ Namespace Forms
 
         Private txtSearch As TextBox
         Private cboSex As ComboBox
-        Private cboStatus As ComboBox
         Private grid As DataGridView
         Private lblCount As Label
 
@@ -45,17 +44,16 @@ Namespace Forms
             AddHandler cboSex.SelectedIndexChanged, Sub() LoadData()
             toolbar.Controls.Add(cboSex)
 
-            cboStatus = New ComboBox With {.Location = New Point(450, 12), .Size = New Size(120, 30), .DropDownStyle = ComboBoxStyle.DropDownList}
-            cboStatus.Items.AddRange({"All Status", "Active", "Inactive"})
-            cboStatus.SelectedIndex = 0
-            AddHandler cboStatus.SelectedIndexChanged, Sub() LoadData()
-            toolbar.Controls.Add(cboStatus)
 
-            Dim btnRegister As New Button With {.Text = "+ Register Patient", .Size = New Size(170, 34)}
-            UiTheme.StylePrimaryButton(btnRegister)
-            UiTheme.PinToRight(btnRegister, toolbar, 0, 10)
-            AddHandler btnRegister.Click, Sub() onRegisterNew?.Invoke()
-            toolbar.Controls.Add(btnRegister)
+            ' Only roles holding the "registration" module (e.g. Records Staff) may register patients;
+            ' others (e.g. Healthcare Staff) only search and open existing records.
+            If Models.Session.Current IsNot Nothing AndAlso Models.Session.Current.HasModule("registration") Then
+                Dim btnRegister As New Button With {.Text = "+ Register Patient", .Size = New Size(170, 34)}
+                UiTheme.StylePrimaryButton(btnRegister)
+                UiTheme.PinToRight(btnRegister, toolbar, 0, 10)
+                AddHandler btnRegister.Click, Sub() onRegisterNew?.Invoke()
+                toolbar.Controls.Add(btnRegister)
+            End If
 
             lblCount = New Label With {.Text = "", .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(0, 58)}
             Dim countPanel As New Panel With {.Dock = DockStyle.Top, .Height = 26}
@@ -77,7 +75,6 @@ Namespace Forms
                     whereClauses.Add("(p.patient_no LIKE @Search OR p.first_name LIKE @Search OR p.last_name LIKE @Search OR p.contact_number LIKE @Search)")
                 End If
                 If cboSex.SelectedIndex > 0 Then whereClauses.Add("p.sex = @Sex")
-                If cboStatus.SelectedIndex > 0 Then whereClauses.Add("p.status = @Status")
 
                 Dim whereSql = ""
                 If whereClauses.Count > 0 Then whereSql = " WHERE " & String.Join(" AND ", whereClauses)
@@ -87,14 +84,13 @@ Namespace Forms
                              CONCAT(p.last_name, ', ', p.first_name, ' ', COALESCE(p.middle_name,'')) AS 'Patient Name',
                              TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS Age,
                              p.sex AS Sex, p.contact_number AS Contact, b.barangay_name AS Barangay,
-                             (SELECT MAX(e.encounter_date) FROM encounters e WHERE e.patient_id = p.patient_id) AS 'Last Visit',
-                             p.status AS Status
+                             (SELECT MAX(e.encounter_date) FROM encounters e WHERE e.patient_id = p.patient_id) AS 'Last Visit'
                       FROM patients p
                       JOIN barangays b ON b.barangay_id = p.barangay_id
                       {whereSql}
                       ORDER BY p.date_registered DESC
                       LIMIT {UiTheme.ResultCap}",
-                    New With {.Search = "%" & search & "%", .Sex = If(cboSex.SelectedIndex > 0, cboSex.Text, ""), .Status = If(cboStatus.SelectedIndex > 0, cboStatus.Text, "")})
+                    New With {.Search = "%" & search & "%", .Sex = If(cboSex.SelectedIndex > 0, cboSex.Text, "")})
 
                 grid.DataSource = table
                 If grid.Columns.Contains("Id") Then grid.Columns("Id").Visible = False

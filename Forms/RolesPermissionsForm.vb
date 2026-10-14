@@ -13,7 +13,7 @@ Namespace Forms
         Private gridRoles As DataGridView
         Private lblSelected, lblHint As Label
         Private txtDescription As TextBox
-        Private cboStatus As ComboBox
+        Private txtStatus As TextBox
         Private chkCanAdd, chkCanEdit, chkCanDelete, chkCanView As CheckBox
         Private moduleChecks As New Dictionary(Of String, CheckBox)
         Private btnSave As Button
@@ -57,9 +57,9 @@ Namespace Forms
             editorPanel.Controls.Add(txtDescription)
 
             editorPanel.Controls.Add(New Label With {.Text = "Status", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(16, 116)})
-            cboStatus = New ComboBox With {.Location = New Point(16, 136), .Width = 160, .DropDownStyle = ComboBoxStyle.DropDownList}
-            cboStatus.Items.AddRange({"Active", "Inactive"})
-            editorPanel.Controls.Add(cboStatus)
+            ' Shown for reference only -- a role's status is not editable here (new roles are created Active).
+            txtStatus = New TextBox With {.Location = New Point(16, 136), .Width = 160, .ReadOnly = True, .TabStop = False}
+            editorPanel.Controls.Add(txtStatus)
 
             editorPanel.Controls.Add(New Label With {.Text = "Record Permissions", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(16, 176)})
             chkCanView = New CheckBox With {.Text = "Can View", .Location = New Point(16, 198), .AutoSize = True}
@@ -105,7 +105,7 @@ Namespace Forms
                 gridRoles.DataSource = table
                 If gridRoles.Columns.Contains("Id") Then gridRoles.Columns("Id").Visible = False
             Catch ex As Exception
-                MessageBox.Show("Could not load roles: " & ex.Message)
+                UiTheme.ShowError(Me, "load roles", ex)
             End Try
         End Sub
 
@@ -126,7 +126,7 @@ Namespace Forms
                 Dim r = table.Rows(0)
 
                 txtDescription.Text = If(IsDBNull(r("description")), "", r("description").ToString())
-                cboStatus.SelectedItem = r("status").ToString()
+                txtStatus.Text = r("status").ToString()
                 chkCanAdd.Checked = Convert.ToBoolean(r("can_add"))
                 chkCanEdit.Checked = Convert.ToBoolean(r("can_edit"))
                 chkCanDelete.Checked = Convert.ToBoolean(r("can_delete"))
@@ -138,7 +138,7 @@ Namespace Forms
                     kvp.Value.Checked = enabledModules.Contains(kvp.Key)
                 Next
             Catch ex As Exception
-                MessageBox.Show("Could not load role details: " & ex.Message)
+                UiTheme.ShowError(Me, "load role details", ex)
             End Try
         End Sub
 
@@ -149,6 +149,7 @@ Namespace Forms
                 MessageBox.Show("The System Administrator role must keep at least view access.", "Not Allowed", MessageBoxButtons.OK, MessageBoxIcon.Warning)
                 Return
             End If
+            If Not UiTheme.Confirm(Me, $"Save the permission changes for ""{selectedRoleName}""?{vbCrLf}{vbCrLf}Every staff member with this role gets the new access the next time they sign in.", "Save Role") Then Return
 
             Try
                 Dim selectedModules = moduleChecks.Where(Function(kvp) kvp.Value.Checked).Select(Function(kvp) kvp.Key).ToList()
@@ -156,13 +157,13 @@ Namespace Forms
 
                 Db.Execute(
                     "UPDATE roles SET description=@Description, module_access=@ModuleAccess,
-                        can_add=@CanAdd, can_edit=@CanEdit, can_delete=@CanDelete, can_view=@CanView, status=@Status
+                        can_add=@CanAdd, can_edit=@CanEdit, can_delete=@CanDelete, can_view=@CanView
                      WHERE role_id=@Id",
                     New With {
                         .Description = If(String.IsNullOrWhiteSpace(txtDescription.Text), CType(DBNull.Value, Object), txtDescription.Text.Trim()),
                         .ModuleAccess = moduleAccess,
                         .CanAdd = chkCanAdd.Checked, .CanEdit = chkCanEdit.Checked, .CanDelete = chkCanDelete.Checked, .CanView = chkCanView.Checked,
-                        .Status = cboStatus.Text, .Id = selectedRoleId.Value
+                        .Id = selectedRoleId.Value
                     })
 
                 AuditLogger.Log("UPDATE", "roles", selectedRoleName, "Updated role permissions")
@@ -174,7 +175,7 @@ Namespace Forms
                 End If
                 LoadRoles()
             Catch ex As Exception
-                MessageBox.Show("Could not save role: " & ex.Message)
+                UiTheme.ShowError(Me, "save role", ex)
             End Try
         End Sub
 
@@ -223,6 +224,7 @@ Namespace Forms
             UiTheme.StylePrimaryButton(btnSave)
             AddHandler btnSave.Click, AddressOf BtnSave_Click
             Me.Controls.Add(btnSave)
+            UiTheme.GuardUnsavedClose(Me)
         End Sub
 
         Private Sub BtnSave_Click(sender As Object, e As EventArgs)
@@ -230,6 +232,7 @@ Namespace Forms
                 lblError.Text = "Role name is required."
                 Return
             End If
+            If Not UiTheme.Confirm(Me, $"Create the role ""{txtName.Text.Trim()}""?", "New Role") Then Return
             Try
                 Db.Execute(
                     "INSERT INTO roles (role_name, description, module_access, can_add, can_edit, can_delete, can_view, status)

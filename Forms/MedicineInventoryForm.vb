@@ -76,7 +76,7 @@ Namespace Forms
                 gridMedicines.DataSource = table
                 If gridMedicines.Columns.Contains("Id") Then gridMedicines.Columns("Id").Visible = False
             Catch ex As Exception
-                MessageBox.Show("Could not load medicines: " & ex.Message)
+                UiTheme.ShowError(Me, "load medicines", ex)
             End Try
         End Sub
 
@@ -98,7 +98,7 @@ Namespace Forms
                      FROM medicine_stock_batches WHERE medicine_id = @Id ORDER BY expiration_date ASC",
                     New With {.Id = selectedMedicineId.Value})
             Catch ex As Exception
-                MessageBox.Show("Could not load batches: " & ex.Message)
+                UiTheme.ShowError(Me, "load batches", ex)
             End Try
         End Sub
 

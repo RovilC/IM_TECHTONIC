@@ -61,6 +61,7 @@ Namespace Forms
             UiTheme.StylePrimaryButton(btnSave)
             AddHandler btnSave.Click, AddressOf BtnSave_Click
             Me.Controls.Add(btnSave)
+            UiTheme.GuardUnsavedClose(Me)
         End Sub
 
         Private Sub BtnSave_Click(sender As Object, e As EventArgs)
@@ -68,6 +69,7 @@ Namespace Forms
                 lblError.Text = "Quantity must be greater than zero."
                 Return
             End If
+            If Not UiTheme.Confirm(Me, $"Receive {numQuantity.Value} unit(s) into stock?", "Receive Stock") Then Return
             Try
                 Dim expiration As Object = If(chkNoExpiration.Checked, CType(DBNull.Value, Object), dtpExpiration.Value.Date)
                 Db.Execute(

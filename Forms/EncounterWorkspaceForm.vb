@@ -12,6 +12,10 @@ Namespace Forms
     ''' </summary>
     Public Class EncounterWorkspaceForm
         Inherits Form
+        Implements IConfirmLeave
+
+        Private triageChanges, consultChanges As ChangeTracker
+        Private tabTriage, tabConsult As TabPage
 
         Private ReadOnly encounterId As Integer
         Private patientId As Integer
@@ -38,12 +42,29 @@ Namespace Forms
         Private gridMedications As DataGridView
 
         Private lblStatus As Label
+        Private btnComplete As Button
+        Private lblCompleteHint As Label
+        Private triageDone As Boolean = False
+        Private encounterClosed As Boolean = False
 
         Public Sub New(encounterId As Integer)
             Me.encounterId = encounterId
             InitializeComponent()
             LoadEncounter()
+            ' Start watching for edits only after the saved data has been filled in.
+            triageChanges = UiTheme.TrackChanges(tabTriage)
+            consultChanges = UiTheme.TrackChanges(tabConsult)
         End Sub
+
+        ''' <summary>Asked by the main window before Back / sidebar / log out: unsaved triage or consultation notes would be lost.</summary>
+        Public Function ConfirmLeave() As Boolean Implements IConfirmLeave.ConfirmLeave
+            If encounterClosed Then Return True
+            Dim unsaved As New List(Of String)
+            If triageChanges IsNot Nothing AndAlso triageChanges.IsDirty Then unsaved.Add("triage vitals")
+            If consultChanges IsNot Nothing AndAlso consultChanges.IsDirty Then unsaved.Add("consultation notes (saved only when the encounter is completed)")
+            If unsaved.Count = 0 Then Return True
+            Return UiTheme.ConfirmDiscard(Me, "the unsaved " & String.Join(" and ", unsaved))
+        End Function
 
         Private Sub InitializeComponent()
             Me.BackColor = UiTheme.BackgroundLight
@@ -65,21 +86,25 @@ Namespace Forms
             Me.Controls.Add(innerNav)
             innerNav.BringToFront()
 
-            Dim tabTriage As New TabPage("Triage")
+            tabTriage = New TabPage("Triage")
             innerNav.TabPages.Add(tabTriage)
             BuildTriageTab(tabTriage)
 
-            Dim tabConsult As New TabPage("Consultation")
+            tabConsult = New TabPage("Consultation")
             innerNav.TabPages.Add(tabConsult)
             BuildConsultationTab(tabConsult)
 
             Dim actionBar As New Panel With {.Dock = DockStyle.Bottom, .Height = 56, .BackColor = Color.White}
             Me.Controls.Add(actionBar)
 
-            Dim btnComplete As New Button With {.Text = "Complete Encounter", .Size = New Size(180, 36)}
-            UiTheme.StylePrimaryButton(btnComplete)
-            AddHandler btnComplete.Click, AddressOf BtnCompleteEncounter_Click
-            actionBar.Controls.Add(btnComplete)
+            ' Consultation can't be opened until triage has been saved.
+            AddHandler innerNav.Selecting,
+                Sub(s, e)
+                    If e.TabPageIndex = 1 AndAlso Not triageDone Then
+                        e.Cancel = True
+                        MessageBox.Show("Save the patient's triage vitals first -- the consultation opens only after triage.", "Triage Required", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                    End If
+                End Sub
 
             Dim btnRequestLab As New Button With {.Text = "Request Lab", .Size = New Size(130, 36)}
             UiTheme.StyleSecondaryButton(btnRequestLab)
@@ -91,7 +116,7 @@ Namespace Forms
             AddHandler btnCertificate.Click, AddressOf BtnMedicalCertificate_Click
             actionBar.Controls.Add(btnCertificate)
 
-            UiTheme.PinRowToRight(actionBar, 10, 0, 10, btnComplete, btnRequestLab, btnCertificate)
+            UiTheme.PinRowToRight(actionBar, 10, 0, 10, btnRequestLab, btnCertificate)
         End Sub
 
         ' ---------------- Triage tab (Figure 23) ----------------
@@ -275,14 +300,49 @@ Namespace Forms
             pMeds.Controls.Add(gridMedications)
             gridMedications.BringToFront()
 
-            ' shared Save Draft button, docked under the inner consult tab control
+            ' Complete Encounter, docked under the inner consult tab control; enabled only once the consultation is finished.
             Dim pnlSave As New Panel With {.Dock = DockStyle.Bottom, .Height = 50}
             tab.Controls.Add(pnlSave)
             tab.Controls.SetChildIndex(pnlSave, 0)
-            Dim btnSaveDraft As New Button With {.Text = "Save Draft", .Size = New Size(140, 36), .Location = New Point(0, 8)}
-            UiTheme.StylePrimaryButton(btnSaveDraft)
-            AddHandler btnSaveDraft.Click, AddressOf BtnSaveConsultation_Click
-            pnlSave.Controls.Add(btnSaveDraft)
+            btnComplete = New Button With {.Text = "Complete Encounter", .Size = New Size(180, 36), .Location = New Point(0, 8), .Enabled = False}
+            UiTheme.StylePrimaryButton(btnComplete)
+            AddHandler btnComplete.Click, AddressOf BtnCompleteEncounter_Click
+            pnlSave.Controls.Add(btnComplete)
+            lblCompleteHint = New Label With {.ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(192, 18)}
+            pnlSave.Controls.Add(lblCompleteHint)
+
+            AddHandler txtChiefComplaint.TextChanged, Sub() UpdateCompleteButton()
+            AddHandler txtTreatmentPlan.TextChanged, Sub() UpdateCompleteButton()
+            AddHandler gridDiagnoses.CellValueChanged, Sub() UpdateCompleteButton()
+            AddHandler gridDiagnoses.RowsRemoved, Sub() UpdateCompleteButton()
+        End Sub
+
+        ''' <summary>
+        ''' The consultation is finished when it has a chief complaint, at least one diagnosis
+        ''' and a treatment plan (after triage, and while the encounter is still open).
+        ''' </summary>
+        Private Sub UpdateCompleteButton()
+            If btnComplete Is Nothing Then Return
+            Dim missing As New List(Of String)
+            If String.IsNullOrWhiteSpace(txtChiefComplaint.Text) Then missing.Add("chief complaint")
+            Dim hasDiagnosis = gridDiagnoses.Rows.Cast(Of DataGridViewRow)().
+                Any(Function(r) Not r.IsNewRow AndAlso Not String.IsNullOrWhiteSpace(TryCellString(r, "diagnosis_desc")))
+            If Not hasDiagnosis Then missing.Add("diagnosis (Assessment)")
+            If String.IsNullOrWhiteSpace(txtTreatmentPlan.Text) Then missing.Add("treatment plan")
+
+            If encounterClosed Then
+                btnComplete.Enabled = False
+                lblCompleteHint.Text = "This encounter is already completed."
+            ElseIf Not triageDone Then
+                btnComplete.Enabled = False
+                lblCompleteHint.Text = "Save triage first."
+            ElseIf missing.Count > 0 Then
+                btnComplete.Enabled = False
+                lblCompleteHint.Text = "To complete, fill in: " & String.Join(", ", missing) & "."
+            Else
+                btnComplete.Enabled = True
+                lblCompleteHint.Text = ""
+            End If
         End Sub
 
         Private Function LabeledMultiline(container As Panel, label As String, x As Integer, y As Integer) As TextBox
@@ -335,8 +395,12 @@ Namespace Forms
                 If Not IsDBNull(r("triage_classification")) Then cboTriageClass.SelectedItem = r("triage_classification").ToString()
                 If Not IsDBNull(r("chief_complaint")) Then txtChiefComplaint.Text = r("chief_complaint").ToString()
 
+                triageDone = Not IsDBNull(r("triage_at")) OrElse Not IsDBNull(r("triage_temp_c"))
+                encounterClosed = r("status").ToString() = "Closed"
+
                 LoadConsultation()
                 LoadMedications()
+                UpdateCompleteButton()
             Catch ex As Exception
                 lblBanner.Text = "Error loading encounter: " & ex.Message
             End Try
@@ -407,6 +471,7 @@ Namespace Forms
                 MessageBox.Show("Temperature is required to save triage.", "Missing Vitals", MessageBoxButtons.OK, MessageBoxIcon.Warning)
                 Return
             End If
+            If Not UiTheme.Confirm(Me, "Save these triage vitals?", "Save Triage") Then Return
             Try
                 ' Both writes represent the same triage event -- if the connection drops between
                 ' them, the encounter would show new triage vitals while the patient's "latest
@@ -438,10 +503,13 @@ Namespace Forms
 
                 AuditLogger.Log("UPDATE", "triage", $"Encounter #{encounterId}", "Saved triage vitals")
                 MessageBox.Show("Triage vitals saved.", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information)
-                lblStatus.Text = "In Progress"
+                If Not encounterClosed Then lblStatus.Text = "In Progress"
+                triageDone = True
+                triageChanges?.Reset()
+                UpdateCompleteButton()
                 innerNav.SelectedIndex = 1
             Catch ex As Exception
-                MessageBox.Show("Could not save triage: " & ex.Message)
+                UiTheme.ShowError(Me, "save triage", ex)
             End Try
         End Sub
 
@@ -469,19 +537,6 @@ Namespace Forms
         Private Function EmptyToNull(s As String) As Object
             Return If(String.IsNullOrWhiteSpace(s), CType(DBNull.Value, Object), s.Trim())
         End Function
-
-        Private Sub BtnSaveConsultation_Click(sender As Object, e As EventArgs)
-            If String.IsNullOrWhiteSpace(txtChiefComplaint.Text) Then
-                MessageBox.Show("Chief complaint is required.", "Missing Information", MessageBoxButtons.OK, MessageBoxIcon.Warning)
-                Return
-            End If
-            Try
-                SaveConsultationCore(status:="Draft")
-                MessageBox.Show("Consultation draft saved.", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information)
-            Catch ex As Exception
-                MessageBox.Show("Could not save consultation: " & ex.Message)
-            End Try
-        End Sub
 
         ''' <summary>
         ''' The consultation upsert, diagnoses reconcile, medications
@@ -648,7 +703,7 @@ Namespace Forms
             Using dlg As New LabRequestDialog(encounterId, lblBanner.Text)
                 dlg.ShowDialog(Me)
                 If dlg.RequestsSubmitted Then
-                    MessageBox.Show("Laboratory request submitted.", "Submitted", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                    MessageBox.Show("Laboratory request submitted. RHU Management will issue it to the RHU laboratory or refer it to an external laboratory.", "Submitted", MessageBoxButtons.OK, MessageBoxIcon.Information)
                 End If
             End Using
         End Sub
@@ -656,9 +711,7 @@ Namespace Forms
         Private Sub BtnMedicalCertificate_Click(sender As Object, e As EventArgs)
             Using dlg As New IssueCertificateDialog(encounterId, lblBanner.Text)
                 If dlg.ShowDialog(Me) = DialogResult.OK AndAlso dlg.IssuedDocumentId.HasValue Then
-                    Using view As New CertificateViewDialog(dlg.IssuedDocumentId.Value)
-                        view.ShowDialog(Me)
-                    End Using
+                    MessageBox.Show("Medical certificate request submitted. It can be printed once RHU Management approves it.", "Submitted", MessageBoxButtons.OK, MessageBoxIcon.Information)
                 End If
             End Using
         End Sub
@@ -669,17 +722,21 @@ Namespace Forms
                 innerNav.SelectedIndex = 1
                 Return
             End If
-            Dim confirm = MessageBox.Show("Complete this encounter? It will be marked Closed and consultation notes finalized.", "Confirm", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
-            If confirm <> DialogResult.Yes Then Return
+            If Not UiTheme.Confirm(Me, "Complete this encounter?" & vbCrLf & vbCrLf &
+                                   "The consultation notes, diagnoses and medications will be saved and the encounter marked Closed. It can't be reopened.",
+                                   "Complete Encounter") Then Return
 
             Try
                 SaveConsultationCore(status:="Completed")
                 Db.Execute("UPDATE encounters SET status='Closed', updated_at=NOW() WHERE encounter_id=@Id", New With {.Id = encounterId})
                 AuditLogger.Log("UPDATE", "encounters", $"Encounter #{encounterId}", "Encounter completed/closed")
                 lblStatus.Text = "Closed"
-                MessageBox.Show("Encounter completed.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                encounterClosed = True
+                triageChanges?.Reset() : consultChanges?.Reset()
+                UpdateCompleteButton()
+                UiTheme.ShowSuccess(Me, "Encounter completed.", "Done")
             Catch ex As Exception
-                MessageBox.Show("Could not complete encounter: " & ex.Message)
+                UiTheme.ShowError(Me, "complete the encounter", ex)
             End Try
         End Sub
 

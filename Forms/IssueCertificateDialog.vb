@@ -39,12 +39,14 @@ Namespace Forms
         Public Sub New(encounterId As Integer, patientDisplayName As String)
             Me.fixedEncounterId = encounterId
             InitializeComponent(patientDisplayName)
+            UiTheme.GuardUnsavedClose(Me)
         End Sub
 
         ''' <summary>Open free-standing (from the Medical Certificates module): user picks patient then encounter.</summary>
         Public Sub New()
             Me.fixedEncounterId = Nothing
             InitializeComponent(Nothing)
+            UiTheme.GuardUnsavedClose(Me)
         End Sub
 
         Private Sub InitializeComponent(fixedPatientName As String)
@@ -165,18 +167,19 @@ Namespace Forms
                 End If
                 encounterId = CType(cboEncounter.SelectedItem, PickItem).Id
             End If
+            If Not UiTheme.Confirm(Me, "Submit this medical certificate request to RHU Management for issuance?", "Request Medical Certificate") Then Return
 
             Try
                 Dim referenceNo = $"MC-{DateTime.Now:yyyy}-{DateTime.Now:MMddHHmmss}"
                 Dim docName = "Medical Certificate"
                 Dim newId = Db.ExecuteInsertReturnId(
                     "INSERT INTO other_documents_services (encounter_id, document_type, document_name, purpose, created_by, created_at, status, remarks, reference_no)
-                     VALUES (@EncounterId, 'Medical Certificate', @DocName, @Purpose, @CreatedBy, NOW(), 'Issued', @Remarks, @ReferenceNo)",
+                     VALUES (@EncounterId, 'Medical Certificate', @DocName, @Purpose, @CreatedBy, NOW(), 'For Approval', @Remarks, @ReferenceNo)",
                     New With {
                         .EncounterId = encounterId, .DocName = docName, .Purpose = txtPurpose.Text.Trim(), .CreatedBy = Session.Current.UserId,
                         .Remarks = If(String.IsNullOrWhiteSpace(txtRemarks.Text), CType(DBNull.Value, Object), txtRemarks.Text.Trim()), .ReferenceNo = referenceNo
                     })
-                AuditLogger.Log("CREATE", "certificates", referenceNo, $"Issued medical certificate for encounter #{encounterId}")
+                AuditLogger.Log("CREATE", "certificates", referenceNo, $"Requested medical certificate for encounter #{encounterId} (for approval)")
                 IssuedDocumentId = CInt(newId)
                 Me.DialogResult = DialogResult.OK
             Catch ex As Exception

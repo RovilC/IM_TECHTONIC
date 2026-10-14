@@ -371,8 +371,21 @@ CREATE TABLE laboratory (
     request_date       DATETIME NOT NULL,
     result              TEXT NULL,
     result_date          DATETIME NULL,
-    status                VARCHAR(20) NOT NULL DEFAULT 'Pending',  -- Pending / In Progress / Released
+    status                VARCHAR(20) NOT NULL DEFAULT 'For Approval',  -- For Approval / Pending / In Progress / Released / Referred / Rejected
     verified_by            INT NULL,
+    -- RHU Management approval: every test checked in one LabRequestDialog submit shares a request_no
+    request_no             VARCHAR(30) NULL,
+    lab_destination        VARCHAR(20) NULL,   -- In-House / External
+    external_facility      VARCHAR(150) NULL,
+    approved_by            INT NULL,
+    approved_at            DATETIME NULL,
+    approval_remarks       TEXT NULL,
+    -- where the released result was actually performed (LabResultDialog)
+    result_source          VARCHAR(20) NULL,   -- RHU Laboratory / External Laboratory
+    result_clinic          VARCHAR(150) NULL,  -- clinic / laboratory name
+    result_doctor          VARCHAR(100) NULL,  -- doctor / pathologist who signed the result
+    CONSTRAINT fk_lab_approved_by FOREIGN KEY (approved_by) REFERENCES users_staff(user_id)
+        ON UPDATE CASCADE ON DELETE SET NULL,
     CONSTRAINT fk_lab_encounter FOREIGN KEY (encounter_id) REFERENCES encounters(encounter_id)
         ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT fk_lab_requested_by FOREIGN KEY (requested_by) REFERENCES users_staff(user_id)
@@ -423,6 +436,10 @@ CREATE TABLE other_documents_services (
     remarks                            TEXT NULL,
     reference_no                        VARCHAR(50) NULL,
     expiry_date                           DATE NULL,
+    approved_by                           INT NULL,   -- RHU Management approval (status For Approval -> Approved / Rejected)
+    approved_at                           DATETIME NULL,
+    CONSTRAINT fk_doc_approved_by FOREIGN KEY (approved_by) REFERENCES users_staff(user_id)
+        ON UPDATE CASCADE ON DELETE SET NULL,
     CONSTRAINT fk_doc_encounter FOREIGN KEY (encounter_id) REFERENCES encounters(encounter_id)
         ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT fk_doc_created_by FOREIGN KEY (created_by) REFERENCES users_staff(user_id)
@@ -467,6 +484,7 @@ CREATE INDEX idx_diagnoses_consultation ON diagnoses (consultation_id);
 CREATE INDEX idx_rx_encounter ON prescriptions_medication_orders (encounter_id);
 CREATE INDEX idx_dispensing_patient ON pharmacy_dispensing (patient_id);
 CREATE INDEX idx_lab_encounter ON laboratory (encounter_id);
+CREATE INDEX idx_lab_request_no ON laboratory (request_no);
 CREATE INDEX idx_referrals_encounter ON referrals (encounter_id);
 CREATE INDEX idx_audit_created_at ON audit_logs (created_at);
 CREATE INDEX idx_audit_user ON audit_logs (user_id);

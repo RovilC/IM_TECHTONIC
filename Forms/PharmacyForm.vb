@@ -88,7 +88,7 @@ Namespace Forms
                      LEFT JOIN users_staff u ON u.user_id = pd.dispensed_by
                      ORDER BY pd.date_dispensed DESC LIMIT 200")
             Catch ex As Exception
-                MessageBox.Show("Could not load dispensing history: " & ex.Message)
+                UiTheme.ShowError(Me, "load dispensing history", ex)
             End Try
         End Sub
 

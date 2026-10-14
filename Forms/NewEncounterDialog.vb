@@ -79,6 +79,7 @@ Namespace Forms
             ' to only ~35px of client area below them once the title bar/borders are subtracted --
             ' in practice they rendered clipped at the bottom edge. Size to the content actually built.
             Me.ClientSize = New Size(Me.ClientSize.Width, y + 30 + 36 + 24)
+            UiTheme.GuardUnsavedClose(Me)
         End Sub
 
         Private Sub BtnStart_Click(sender As Object, e As EventArgs)
@@ -86,6 +87,7 @@ Namespace Forms
                 lblError.Text = "Chief complaint is required."
                 Return
             End If
+            If Not UiTheme.Confirm(Me, "Start a new encounter for this patient?", "New Encounter") Then Return
             Try
                 Dim encounterNo = IdGenerator.NextEncounterNo()
                 Dim newId = Db.ExecuteInsertReturnId(

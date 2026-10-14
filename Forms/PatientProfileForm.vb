@@ -5,7 +5,7 @@ Imports TechTonic_IM_RHU.Models
 
 Namespace Forms
 
-    ''' <summary>Patient profile / medical history hub (Figures 11-20).</summary>
+    ''' <summary>Patient profile / medical history hub (Figures 11-20): read-only record summary in tabs, printable via PatientSummaryPrinter.</summary>
     Public Class PatientProfileForm
         Inherits Form
 
@@ -13,17 +13,16 @@ Namespace Forms
         Private ReadOnly onOpenEncounter As Action(Of Integer)
 
         ''' <summary>
-        ''' Roles without clinical/encounter access (e.g. Records Staff, once
-        ''' its module_access no longer includes "encounters") get a
-        ''' summary-only profile: demographics + a read-only visit list, no
-        ''' Medical History (consultations/diagnoses/lab/meds) and no way to
-        ''' start or open a clinical encounter from here.
+        ''' Roles without clinical/encounter access (e.g. Records Staff) still
+        ''' see the full read-only record summary (visits, diagnoses, labs,
+        ''' medicines, certificates, referrals) and can print it, but cannot
+        ''' start a new encounter or drill into the clinical workspace.
         ''' </summary>
         Private ReadOnly canAccessEncounters As Boolean
 
         Private lblName, lblMeta, lblConditions As Label
         Private tabs As TabControl
-        Private gridEncounters, gridConsultations, gridDiagnoses, gridLabResults, gridMedications As DataGridView
+        Private pnlInfo As TableLayoutPanel
 
         Private patientDisplayName As String = ""
 
@@ -33,8 +32,7 @@ Namespace Forms
             Me.canAccessEncounters = Session.Current IsNot Nothing AndAlso Session.Current.HasModule("encounters")
             InitializeComponent()
             LoadPatient()
-            LoadEncounters()
-            If canAccessEncounters Then LoadMedicalHistory()
+            LoadSections()
         End Sub
 
         Private Sub InitializeComponent()
@@ -51,137 +49,96 @@ Namespace Forms
             lblConditions = New Label With {.ForeColor = UiTheme.DangerRed, .AutoSize = True, .Location = New Point(20, 68), .MaximumSize = New Size(700, 0)}
             card.Controls.Add(lblConditions)
 
+            ' First button sits flush right, the rest stack to its left (PinRowToRight).
+            Dim buttons As New List(Of Control)
             If canAccessEncounters Then
                 Dim btnNewEncounter As New Button With {.Text = "+ New Encounter", .Size = New Size(160, 36)}
                 UiTheme.StylePrimaryButton(btnNewEncounter)
-                UiTheme.PinToRight(btnNewEncounter, card, 20, 20)
                 AddHandler btnNewEncounter.Click, AddressOf BtnNewEncounter_Click
-                card.Controls.Add(btnNewEncounter)
+                buttons.Add(btnNewEncounter)
             End If
 
-            Dim btnEdit As New Button With {.Text = "Edit Patient", .Size = New Size(120, 36)}
-            UiTheme.StyleSecondaryButton(btnEdit)
-            UiTheme.PinToRight(btnEdit, card, 20, If(canAccessEncounters, 64, 20))
-            AddHandler btnEdit.Click, AddressOf BtnEdit_Click
-            card.Controls.Add(btnEdit)
+            ' Print Summary and Edit Patient belong to the records roles (those holding "registration");
+            ' Healthcare Staff only view the record and work on encounters.
+            If Session.Current IsNot Nothing AndAlso Session.Current.HasModule("registration") Then
+                Dim btnPrint As New Button With {.Text = "Print Summary", .Size = New Size(140, 36)}
+                If canAccessEncounters Then UiTheme.StyleSecondaryButton(btnPrint) Else UiTheme.StylePrimaryButton(btnPrint)
+                AddHandler btnPrint.Click, Sub() PatientSummaryPrinter.ShowPreview(Me, patientId)
+                buttons.Add(btnPrint)
+
+                Dim btnEdit As New Button With {.Text = "Edit Patient", .Size = New Size(120, 36)}
+                UiTheme.StyleSecondaryButton(btnEdit)
+                AddHandler btnEdit.Click, AddressOf BtnEdit_Click
+                buttons.Add(btnEdit)
+            End If
+
+            card.Controls.AddRange(buttons.ToArray())
+            UiTheme.PinRowToRight(card, 20, 20, 10, buttons.ToArray())
 
             tabs = New TabControl With {.Dock = DockStyle.Fill}
             Me.Controls.Add(tabs)
             tabs.BringToFront()
 
-            Dim tabOverview As New TabPage("Overview")
-            tabs.TabPages.Add(tabOverview)
-            gridEncounters = New DataGridView With {.Dock = DockStyle.Fill}
-            UiTheme.StyleGrid(gridEncounters)
-            ' Records Staff (no "encounters" module access) get a read-only visit list here --
-            ' drilling into the full clinical workspace (triage/consultation entry) isn't theirs to do.
-            If canAccessEncounters Then AddHandler gridEncounters.CellDoubleClick, AddressOf GridEncounters_CellDoubleClick
-            tabOverview.Controls.Add(gridEncounters)
-
-            If Not canAccessEncounters Then Return
-
-            Dim tabHistory As New TabPage("Medical History")
-            tabs.TabPages.Add(tabHistory)
-            Dim historyTabs As New TabControl With {.Dock = DockStyle.Fill}
-            tabHistory.Controls.Add(historyTabs)
-
-            Dim tConsult As New TabPage("Consultations")
-            gridConsultations = New DataGridView With {.Dock = DockStyle.Fill}
-            UiTheme.StyleGrid(gridConsultations)
-            tConsult.Controls.Add(gridConsultations)
-            historyTabs.TabPages.Add(tConsult)
-
-            Dim tDiag As New TabPage("Diagnoses")
-            gridDiagnoses = New DataGridView With {.Dock = DockStyle.Fill}
-            UiTheme.StyleGrid(gridDiagnoses)
-            tDiag.Controls.Add(gridDiagnoses)
-            historyTabs.TabPages.Add(tDiag)
-
-            Dim tLab As New TabPage("Lab Results")
-            gridLabResults = New DataGridView With {.Dock = DockStyle.Fill}
-            UiTheme.StyleGrid(gridLabResults)
-            tLab.Controls.Add(gridLabResults)
-            historyTabs.TabPages.Add(tLab)
-
-            Dim tMeds As New TabPage("Medications")
-            gridMedications = New DataGridView With {.Dock = DockStyle.Fill}
-            UiTheme.StyleGrid(gridMedications)
-            tMeds.Controls.Add(gridMedications)
-            historyTabs.TabPages.Add(tMeds)
+            Dim tabInfo As New TabPage("Patient Information") With {.BackColor = Color.White, .AutoScroll = True}
+            pnlInfo = New TableLayoutPanel With {.Location = New Point(16, 16), .AutoSize = True, .ColumnCount = 2}
+            pnlInfo.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170))
+            pnlInfo.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+            tabInfo.Controls.Add(pnlInfo)
+            tabs.TabPages.Add(tabInfo)
         End Sub
 
         Private Sub LoadPatient()
             Try
-                Dim table = Db.Query(
-                    "SELECT p.*, b.barangay_name FROM patients p JOIN barangays b ON b.barangay_id = p.barangay_id WHERE p.patient_id = @Id",
-                    New With {.Id = patientId})
-                If table.Rows.Count = 0 Then
+                Dim r = PatientSummaryData.LoadPatient(patientId)
+                If r Is Nothing Then
                     lblName.Text = "Patient not found"
                     Return
                 End If
-                Dim r = table.Rows(0)
                 patientDisplayName = $"{r("last_name")}, {r("first_name")} {r("middle_name")}".Trim()
-                Dim age = DateTime.Today.Year - Convert.ToDateTime(r("date_of_birth")).Year
                 lblName.Text = $"{patientDisplayName}   ({r("patient_no")})"
-                lblMeta.Text = $"{age} years old - {r("sex")}   |   {If(IsDBNull(r("contact_number")), "no contact", r("contact_number"))}   |   {r("barangay_name")}, Vinzons"
+                lblMeta.Text = $"{r("age")} years old - {r("sex")}   |   {If(IsDBNull(r("contact_number")), "no contact", r("contact_number"))}   |   {r("barangay_name")}, Vinzons" &
+                               If(IsDBNull(r("household_no")), "", $"   |   Household {r("household_no")}")
 
                 Dim flags As New List(Of String)
                 If Not IsDBNull(r("existing_conditions")) AndAlso r("existing_conditions").ToString().Trim().Length > 0 Then flags.Add(r("existing_conditions").ToString())
                 If Not IsDBNull(r("known_allergies")) AndAlso r("known_allergies").ToString().Trim().Length > 0 Then flags.Add("Allergy: " & r("known_allergies").ToString())
                 lblConditions.Text = String.Join("   |   ", flags)
+
+                pnlInfo.SuspendLayout()
+                UiTheme.ClearAndDispose(pnlInfo)
+                For Each f In PatientSummaryData.PatientInfoFields(r)
+                    pnlInfo.Controls.Add(New Label With {.Text = f.Label, .Font = UiTheme.BoldFont, .AutoSize = True, .Margin = New Padding(0, 4, 8, 4)})
+                    pnlInfo.Controls.Add(New Label With {.Text = f.Value, .AutoSize = True, .MaximumSize = New Size(800, 0), .Margin = New Padding(0, 4, 0, 4)})
+                Next
+                pnlInfo.ResumeLayout()
             Catch ex As Exception
                 lblName.Text = "Error loading patient: " & ex.Message
             End Try
         End Sub
 
-        Private Sub LoadEncounters()
+        ''' <summary>One read-only tab per history section (PatientSummaryData); tab titles carry the record count.</summary>
+        Private Sub LoadSections()
             Try
-                Dim table = Db.Query(
-                    "SELECT e.encounter_id AS Id, e.encounter_no AS 'Encounter No.', e.encounter_date AS Date, e.visit_type AS 'Visit Type',
-                            e.chief_complaint AS 'Chief Complaint', e.status AS Status, u.full_name AS 'Attending Staff'
-                     FROM encounters e LEFT JOIN users_staff u ON u.user_id = e.created_by
-                     WHERE e.patient_id = @Id ORDER BY e.encounter_date DESC",
-                    New With {.Id = patientId})
-                gridEncounters.DataSource = table
-                If gridEncounters.Columns.Contains("Id") Then gridEncounters.Columns("Id").Visible = False
+                For Each sec In PatientSummaryData.LoadSections(patientId)
+                    Dim page As New TabPage($"{sec.Title} ({sec.Table.Rows.Count})")
+                    Dim grid As New DataGridView With {.Dock = DockStyle.Fill}
+                    UiTheme.StyleGrid(grid)
+                    page.Controls.Add(grid)
+                    tabs.TabPages.Add(page)
+                    grid.DataSource = sec.Table
+                    If grid.Columns.Contains("Id") Then grid.Columns("Id").Visible = False
+                    ' Only clinical roles can drill from a visit into the encounter workspace.
+                    If canAccessEncounters AndAlso sec.Table.Columns.Contains("Id") Then
+                        AddHandler grid.CellDoubleClick,
+                            Sub(s, e)
+                                If e.RowIndex < 0 Then Return
+                                onOpenEncounter?.Invoke(Convert.ToInt32(grid.Rows(e.RowIndex).Cells("Id").Value))
+                            End Sub
+                    End If
+                Next
             Catch ex As Exception
-                MessageBox.Show("Could not load encounters: " & ex.Message)
+                UiTheme.ShowError(Me, "load patient history", ex)
             End Try
-        End Sub
-
-        Private Sub LoadMedicalHistory()
-            Try
-                gridConsultations.DataSource = Db.Query(
-                    "SELECT c.consultation_date AS Date, u.full_name AS Doctor, c.assessment AS Assessment, c.status AS Status
-                     FROM consultations c JOIN encounters e ON e.encounter_id = c.encounter_id
-                     JOIN users_staff u ON u.user_id = c.doctor_id
-                     WHERE e.patient_id = @Id ORDER BY c.consultation_date DESC", New With {.Id = patientId})
-
-                gridDiagnoses.DataSource = Db.Query(
-                    "SELECT d.created_at AS Date, d.diagnosis_desc AS Diagnosis, d.classification AS Classification, d.status AS Status
-                     FROM diagnoses d
-                     JOIN consultations c ON c.consultation_id = d.consultation_id
-                     JOIN encounters e ON e.encounter_id = c.encounter_id
-                     WHERE e.patient_id = @Id ORDER BY d.created_at DESC", New With {.Id = patientId})
-
-                gridLabResults.DataSource = Db.Query(
-                    "SELECT l.request_date AS Requested, l.test_name AS Test, l.result AS Result, l.status AS Status
-                     FROM laboratory l JOIN encounters e ON e.encounter_id = l.encounter_id
-                     WHERE e.patient_id = @Id ORDER BY l.request_date DESC", New With {.Id = patientId})
-
-                gridMedications.DataSource = Db.Query(
-                    "SELECT rx.medication_date AS Date, rx.medicine_name AS Medicine, rx.dosage AS Dosage, rx.frequency AS Frequency, rx.status AS Status
-                     FROM prescriptions_medication_orders rx JOIN encounters e ON e.encounter_id = rx.encounter_id
-                     WHERE e.patient_id = @Id ORDER BY rx.medication_date DESC", New With {.Id = patientId})
-            Catch ex As Exception
-                MessageBox.Show("Could not load medical history: " & ex.Message)
-            End Try
-        End Sub
-
-        Private Sub GridEncounters_CellDoubleClick(sender As Object, e As DataGridViewCellEventArgs)
-            If e.RowIndex < 0 Then Return
-            Dim id = Convert.ToInt32(gridEncounters.Rows(e.RowIndex).Cells("Id").Value)
-            onOpenEncounter?.Invoke(id)
         End Sub
 
         Private Sub BtnNewEncounter_Click(sender As Object, e As EventArgs)

@@ -99,7 +99,7 @@ Namespace Forms
                 If gridHouseholds.Columns.Contains("Id") Then gridHouseholds.Columns("Id").Visible = False
                 lblCount.Text = UiTheme.FormatCountLabel(table.Rows.Count, "household")
             Catch ex As Exception
-                MessageBox.Show("Could not load households: " & ex.Message)
+                UiTheme.ShowError(Me, "load households", ex)
             End Try
         End Sub
 
@@ -128,7 +128,7 @@ Namespace Forms
                     cboHeadCandidate.Items.Add(New IdName(Convert.ToInt32(row("Id")), row("Name").ToString()))
                 Next
             Catch ex As Exception
-                MessageBox.Show("Could not load members: " & ex.Message)
+                UiTheme.ShowError(Me, "load members", ex)
             End Try
         End Sub
 
@@ -176,6 +176,7 @@ Namespace Forms
             End If
             If cboUnlinkedPatients.SelectedItem Is Nothing Then Return
             Dim patient = CType(cboUnlinkedPatients.SelectedItem, IdName)
+            If Not UiTheme.Confirm(Me, $"Add {patient.Name} to this household?", "Link Member") Then Return
             Try
                 Db.Execute("UPDATE patients SET family_id = @FamilyId, date_updated = NOW() WHERE patient_id = @PatientId",
                     New With {.FamilyId = selectedFamilyId.Value, .PatientId = patient.Id})
@@ -185,13 +186,14 @@ Namespace Forms
                 cboUnlinkedPatients.Text = ""
                 LoadHouseholds()
             Catch ex As Exception
-                MessageBox.Show("Could not link patient: " & ex.Message)
+                UiTheme.ShowError(Me, "link patient", ex)
             End Try
         End Sub
 
         Private Sub BtnSetHead_Click(sender As Object, e As EventArgs)
             If Not selectedFamilyId.HasValue OrElse cboHeadCandidate.SelectedItem Is Nothing Then Return
             Dim member = CType(cboHeadCandidate.SelectedItem, IdName)
+            If Not UiTheme.Confirm(Me, $"Make {member.Name} the head of this household? This replaces the current head.", "Set Family Head") Then Return
             Try
                 ' All three writes must land together -- a crash between the first and the
                 ' other two would leave families_households.family_head_id pointing at someone
@@ -208,7 +210,7 @@ Namespace Forms
                 LoadHouseholds()
                 MessageBox.Show($"{member.Name} set as family head.", "Updated", MessageBoxButtons.OK, MessageBoxIcon.Information)
             Catch ex As Exception
-                MessageBox.Show("Could not set family head: " & ex.Message)
+                UiTheme.ShowError(Me, "set family head", ex)
             End Try
         End Sub
 
@@ -261,6 +263,7 @@ Namespace Forms
             Me.Controls.Add(btnSave)
 
             LoadBarangays()
+            UiTheme.GuardUnsavedClose(Me)
         End Sub
 
         Private Class BarangayItem
@@ -291,6 +294,7 @@ Namespace Forms
                 lblError.Text = "Barangay is required."
                 Return
             End If
+            If Not UiTheme.Confirm(Me, $"Register a new household in {cboBarangay.Text}?", "New Household") Then Return
             Try
                 Dim barangayId = CType(cboBarangay.SelectedItem, BarangayItem).Id
                 Dim householdNo = IdGenerator.NextHouseholdNo()
