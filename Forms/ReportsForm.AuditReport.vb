@@ -75,6 +75,7 @@ Namespace Forms
             WireExportMenu(btnExport, "System Activity & Audit Logs Report", "AuditLogs",
                 Function() New List(Of (String, DataTable)) From {("Audit Logs", CType(grid.DataSource, DataTable))})
             refresh()
+            AuditLogsTheme.Apply(p, btnExport, dtpFrom, dtpTo, cboAction, cboUser, lblSummary, grid)   ' visual restyle only
             Return p
         End Function
 

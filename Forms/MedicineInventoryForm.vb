@@ -10,12 +10,14 @@ Namespace Forms
 
         Private gridMedicines, gridBatches As DataGridView
         Private lblSelected As Label
+        Private txtSearch As TextBox
         Private selectedMedicineId As Integer? = Nothing
         Private selectedMedicineName As String = ""
         Private btnReceiveStock As Button
 
         Public Sub New()
             InitializeComponent()
+            InventoryTheme.ApplyMedicineInventory(Me, gridMedicines, gridBatches, lblSelected, btnReceiveStock)   ' visual restyle only
             LoadMedicines()
         End Sub
 
@@ -29,6 +31,15 @@ Namespace Forms
             UiTheme.StylePrimaryButton(btnAddMedicine)
             AddHandler btnAddMedicine.Click, AddressOf BtnAddMedicine_Click
             toolbar.Controls.Add(btnAddMedicine)
+
+            ' Search the catalog by medicine name, brand or category (debounced, like the other lists).
+            txtSearch = New TextBox With {.PlaceholderText = "Search medicine, brand or category..."}
+            UiTheme.AttachDebouncedSearch(txtSearch, AddressOf LoadMedicines)
+            Dim searchBox = ClinicalUi.InputWrap(txtSearch, Nothing, 34)
+            searchBox.Dock = DockStyle.None
+            searchBox.Location = New Point(166, 8)
+            searchBox.Size = New Size(320, 34)
+            toolbar.Controls.Add(searchBox)
 
             Dim split As New SplitContainer With {.Dock = DockStyle.Fill}
             Me.Controls.Add(split)
@@ -60,6 +71,7 @@ Namespace Forms
 
         Private Sub LoadMedicines()
             Try
+                Dim search = txtSearch.Text.Trim()
                 Dim table = Db.Query(
                     "SELECT m.medicine_id AS Id, m.medicine_name AS Medicine, m.brand AS Brand, m.category AS Category, m.unit AS Unit,
                             m.minimum_stock_level AS 'Min. Stock Level',
@@ -72,9 +84,19 @@ Namespace Forms
                             END AS Status
                      FROM medicines m
                      WHERE m.status = 'Active'
-                     ORDER BY m.medicine_name")
+                       AND (@Search = '' OR m.medicine_name LIKE @Like OR m.brand LIKE @Like OR m.category LIKE @Like)
+                     ORDER BY m.medicine_name",
+                    New With {.Search = search, .Like = "%" & search & "%"})
                 gridMedicines.DataSource = table
                 If gridMedicines.Columns.Contains("Id") Then gridMedicines.Columns("Id").Visible = False
+                If table.Rows.Count = 0 Then
+                    ' Nothing matches: clear the batches side too, so it never shows a medicine that is no longer listed.
+                    selectedMedicineId = Nothing
+                    selectedMedicineName = ""
+                    lblSelected.Text = "Stock Batches -- no medicine selected"
+                    gridBatches.DataSource = Nothing
+                    btnReceiveStock.Enabled = False
+                End If
             Catch ex As Exception
                 UiTheme.ShowError(Me, "load medicines", ex)
             End Try

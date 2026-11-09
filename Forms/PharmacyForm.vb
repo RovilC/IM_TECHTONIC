@@ -19,32 +19,53 @@ Namespace Forms
         End Sub
 
         Private Sub InitializeComponent()
-            Me.BackColor = Color.White
+            ' Same look as the Patient Profile page: mint background, white header card with a green top bar,
+            ' then a pill-style tab bar over white pages. The tables themselves are unchanged.
+            Me.BackColor = ClinicalUi.PageBg
             Me.Font = UiTheme.BaseFont
+            Me.Padding = New Padding(20, 16, 20, 16)
 
-            Dim toolbar As New Panel With {.Dock = DockStyle.Top, .Height = 50}
-            Me.Controls.Add(toolbar)
-            txtSearch = New TextBox With {.Location = New Point(0, 10), .Width = 300, .PlaceholderText = "Search patient or medicine..."}
+            ' Dock order: later-added Top controls sit higher -> gap spacer first, then the header card.
+            Me.Controls.Add(New Panel With {.Dock = DockStyle.Top, .Height = 14})
+
+            Dim header As New Panel With {.Dock = DockStyle.Top, .Height = 80, .BackColor = Color.White}
+            ClinicalUi.SetDoubleBuffered(header)
+            AddHandler header.Paint,
+                Sub(s, e)
+                    Using pen As New Pen(ClinicalUi.CardBorder)
+                        e.Graphics.DrawRectangle(pen, 0, 0, header.Width - 1, header.Height - 1)
+                    End Using
+                    Using bar As New SolidBrush(ClinicalUi.Green)
+                        e.Graphics.FillRectangle(bar, 0, 0, header.Width, 6)
+                    End Using
+                End Sub
+            Me.Controls.Add(header)
+
+            txtSearch = New TextBox With {.PlaceholderText = "Search patient or medicine..."}
             UiTheme.AttachDebouncedSearch(txtSearch, AddressOf LoadPending)
-            toolbar.Controls.Add(txtSearch)
+            Dim searchBox = ClinicalUi.InputWrap(txtSearch, Nothing, 38)
+            searchBox.Dock = DockStyle.None
+            searchBox.Location = New Point(24, 26)
+            searchBox.Size = New Size(340, 38)
+            header.Controls.Add(searchBox)
 
-            Dim tabs As New TabControl With {.Dock = DockStyle.Fill}
+            Dim tabs As New PillTabControl With {.Dock = DockStyle.Fill}
             Me.Controls.Add(tabs)
             tabs.BringToFront()
 
-            Dim tabPending As New TabPage("Pending Prescriptions")
+            Dim tabPending As New TabPage("Pending Prescriptions") With {.BackColor = Color.White, .UseVisualStyleBackColor = False, .Padding = New Padding(16, 8, 16, 8)}
             tabs.TabPages.Add(tabPending)
             gridPending = New DataGridView With {.Dock = DockStyle.Fill}
             UiTheme.StyleGrid(gridPending)
             AddHandler gridPending.CellDoubleClick, AddressOf GridPending_CellDoubleClick
             tabPending.Controls.Add(gridPending)
 
-            lblCount = New Label With {.Dock = DockStyle.Bottom, .Height = 22, .ForeColor = UiTheme.TextMuted}
+            lblCount = New Label With {.Dock = DockStyle.Bottom, .Height = 28, .ForeColor = ClinicalUi.TextSoft, .TextAlign = ContentAlignment.MiddleLeft}
             tabPending.Controls.Add(lblCount)
-            Dim hint As New Label With {.Text = "Double-click a prescription to dispense it.", .Dock = DockStyle.Top, .Height = 22, .ForeColor = UiTheme.TextMuted}
+            Dim hint As New Label With {.Text = "Double-click a prescription to dispense it.", .Dock = DockStyle.Top, .Height = 28, .ForeColor = ClinicalUi.TextSoft, .TextAlign = ContentAlignment.MiddleLeft}
             tabPending.Controls.Add(hint)
 
-            Dim tabHistory As New TabPage("Dispensing History")
+            Dim tabHistory As New TabPage("Dispensing History") With {.BackColor = Color.White, .UseVisualStyleBackColor = False, .Padding = New Padding(16, 8, 16, 8)}
             tabs.TabPages.Add(tabHistory)
             gridHistory = New DataGridView With {.Dock = DockStyle.Fill}
             UiTheme.StyleGrid(gridHistory)

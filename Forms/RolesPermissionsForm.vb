@@ -22,6 +22,7 @@ Namespace Forms
 
         Public Sub New()
             InitializeComponent()
+            RolesPermissionsTheme.ApplyRolePermissions(Me)   ' visual restyle only
             LoadRoles()
         End Sub
 

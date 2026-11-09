@@ -434,54 +434,90 @@ Namespace Forms
         Private Function BuildDashboardHomePanel() As Panel
             Dim root As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True}
 
-            Dim cardsFlow As New FlowLayoutPanel With {
-                .Location = New Point(0, 0),
-                .Size = New Size(1400, 130),
-                .FlowDirection = FlowDirection.LeftToRight,
-                .WrapContents = True,
-                .AutoSize = True
-            }
-            root.Controls.Add(cardsFlow)
-
-            Dim stats = LoadDashboardStats()
-            For Each stat In stats
-                cardsFlow.Controls.Add(BuildStatCard(stat.Item1, stat.Item2, stat.Item3))
+            ' Every block (stat cards, chart row, audit grid) is laid out against the same
+            ' left/right edges in RelayoutDashboard, so they always end at the same x.
+            Dim cards As New List(Of Panel)
+            For Each stat In LoadDashboardStats()
+                Dim card = BuildStatCard(stat.Item1, stat.Item2, stat.Item3)
+                cards.Add(card)
+                root.Controls.Add(card)
             Next
 
             Dim lblCharts As New Label With {
-                .Text = "Trends & Breakdown",
+                .Text = "Performance Analytics",
                 .Font = UiTheme.SubHeaderFont,
                 .ForeColor = UiTheme.TextDark,
-                .AutoSize = True,
-                .Location = New Point(4, 150)
+                .AutoSize = True
             }
             root.Controls.Add(lblCharts)
-            root.Controls.Add(BuildChartsRow())
+
+            Dim charts = New Chart() {BuildEncounterTrendChart(), BuildStockStatusChart(), BuildLabStatusChart()}
+            For Each c In charts
+                root.Controls.Add(c)
+            Next
 
             Dim lblRecent As New Label With {
                 .Text = "Recent Audit Activity",
                 .Font = UiTheme.SubHeaderFont,
                 .ForeColor = UiTheme.TextDark,
-                .AutoSize = True,
-                .Location = New Point(4, 500)
+                .AutoSize = True
             }
             root.Controls.Add(lblRecent)
 
-            Dim grid As New DataGridView With {
-                .Location = New Point(4, 534),
-                .Size = New Size(1180, 320)
-            }
+            Dim grid As New DataGridView()
             UiTheme.StyleGrid(grid)
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
             root.Controls.Add(grid)
 
+            Dim errLabel As Label = Nothing
             Try
                 grid.DataSource = Db.Query(
                     "SELECT created_at AS Time, username_snapshot AS 'User', role_snapshot AS Role, action AS Action, module AS Module, description AS Details
                      FROM audit_logs ORDER BY created_at DESC LIMIT 25")
             Catch ex As Exception
-                root.Controls.Add(New Label With {.Text = "Could not load audit activity: " & ex.Message, .ForeColor = UiTheme.DangerRed, .Location = New Point(4, 184), .AutoSize = True})
+                errLabel = New Label With {.Text = "Could not load audit activity: " & ex.Message, .ForeColor = UiTheme.DangerRed, .AutoSize = True}
+                root.Controls.Add(errLabel)
             End Try
 
+            Dim relayout =
+                Sub()
+                    Const margin As Integer = 4
+                    Const gap As Integer = 16
+                    Const cols As Integer = 5
+                    Const cardH As Integer = 100
+                    Const chartH As Integer = 300
+                    Const gridH As Integer = 320
+                    Dim w = Math.Max(600, root.ClientSize.Width - margin * 2)
+                    Dim cardW = (w - gap * (cols - 1)) \ cols
+
+                    For i = 0 To cards.Count - 1
+                        cards(i).Size = New Size(cardW, cardH)
+                        cards(i).Location = New Point(margin + (i Mod cols) * (cardW + gap), (i \ cols) * (cardH + gap))
+                    Next
+                    Dim rows = (cards.Count + cols - 1) \ cols
+                    Dim y = rows * (cardH + gap) + 4
+
+                    lblCharts.Location = New Point(margin, y)
+                    y += lblCharts.Height + 8
+
+                    Dim chartW = (w - gap * (charts.Length - 1)) \ charts.Length
+                    For i = 0 To charts.Length - 1
+                        charts(i).Size = New Size(If(i = charts.Length - 1, w - (chartW + gap) * i, chartW), chartH)
+                        charts(i).Location = New Point(margin + i * (chartW + gap), y)
+                    Next
+                    y += chartH + gap + 4
+
+                    lblRecent.Location = New Point(margin, y)
+                    y += lblRecent.Height + 8
+                    If errLabel IsNot Nothing Then errLabel.Location = New Point(margin, y)
+
+                    grid.Location = New Point(margin, y)
+                    grid.Size = New Size(w, gridH)
+                    root.AutoScrollMinSize = New Size(0, y + gridH + gap)
+                End Sub
+
+            AddHandler root.Resize, Sub(s, e) relayout()
+            relayout()
             Return root
         End Function
 
@@ -534,23 +570,6 @@ Namespace Forms
         End Function
 
         ' ---- Dashboard charts (encounter trend, medicine stock breakdown, lab request breakdown) ----
-        Private Function BuildChartsRow() As Panel
-            Dim row As New Panel With {.Location = New Point(4, 184), .Size = New Size(1180, 300)}
-
-            Dim charts = New Chart() {BuildEncounterTrendChart(), BuildStockStatusChart(), BuildLabStatusChart()}
-            Const gap As Integer = 16
-            Dim chartWidth = (row.Width - gap * (charts.Length - 1)) \ charts.Length
-            Dim x As Integer = 0
-            For Each c In charts
-                c.Location = New Point(x, 0)
-                c.Size = New Size(chartWidth, row.Height)
-                row.Controls.Add(c)
-                x += chartWidth + gap
-            Next
-
-            Return row
-        End Function
-
         ''' <summary>Common chart chrome: card-like white background, muted border, crisp text, and no distracting 3D/shadow effects.</summary>
         Private Function NewChart(chartTitle As String) As Chart
             Dim chart As New Chart With {
@@ -761,34 +780,56 @@ Namespace Forms
         End Function
 
         Private Function BuildStatCard(title As String, value As String, accent As Color) As Panel
-            Dim card As New Panel With {
-                .Size = New Size(210, 100),
-                .BackColor = Color.White,
-                .Margin = New Padding(0, 0, 16, 16)
-            }
-            Dim accentBar As New Panel With {.Dock = DockStyle.Left, .Width = 5, .BackColor = accent}
-            card.Controls.Add(accentBar)
+            Dim card As New Panel With {.Size = New Size(210, 100), .BackColor = Color.White}
+            AddHandler card.Paint,
+                Sub(s, e)
+                    Using pen As New Pen(UiTheme.BorderLight)
+                        e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1)
+                    End Using
+                End Sub
 
-            Dim lblValue As New Label With {
+            ' Icon tile tinted with the accent colour, as in the reference mockup.
+            Dim tile As New Label With {
+                .Text = StatGlyph(title),
+                .Font = New Font("Segoe UI Emoji", 13.0F),
+                .ForeColor = accent,
+                .BackColor = Color.FromArgb(40, accent),
+                .TextAlign = ContentAlignment.MiddleCenter,
+                .Size = New Size(38, 38),
+                .Location = New Point(14, 14)
+            }
+            tile.BackColor = Color.FromArgb(255, CInt(255 - (255 - accent.R) * 0.15), CInt(255 - (255 - accent.G) * 0.15), CInt(255 - (255 - accent.B) * 0.15))
+            card.Controls.Add(tile)
+
+            card.Controls.Add(New Label With {
                 .Text = value,
                 .Font = New Font("Segoe UI", 20.0F, FontStyle.Bold),
                 .ForeColor = UiTheme.TextDark,
                 .AutoSize = True,
-                .Location = New Point(20, 16)
-            }
-            card.Controls.Add(lblValue)
+                .Location = New Point(60, 12)
+            })
 
-            Dim lblTitle As New Label With {
+            card.Controls.Add(New Label With {
                 .Text = title,
                 .Font = New Font("Segoe UI", 8.75F),
                 .ForeColor = UiTheme.TextMuted,
                 .AutoSize = True,
-                .MaximumSize = New Size(175, 0),
-                .Location = New Point(20, 58)
-            }
-            card.Controls.Add(lblTitle)
+                .Location = New Point(14, 68)
+            })
 
             Return card
+        End Function
+
+        Private Function StatGlyph(title As String) As String
+            If title.Contains("Lab") Then Return Char.ConvertFromUtf32(&H1F9EA)
+            If title.Contains("Medicine") Then Return Char.ConvertFromUtf32(&H1F48A)
+            If title.Contains("Expiring") Then Return ChrW(&H26A0)
+            If title.Contains("Cert") Then Return Char.ConvertFromUtf32(&H1F4C4)
+            If title.Contains("Encounter") Then Return Char.ConvertFromUtf32(&H1F4CB)
+            If title.Contains("Household") Then Return Char.ConvertFromUtf32(&H1F3E0)
+            If title.Contains("Staff") Or title.Contains("User") Then Return Char.ConvertFromUtf32(&H1F465)
+            If title.Contains("Patient") Then Return Char.ConvertFromUtf32(&H1F9D1)
+            Return ChrW(&H2022)
         End Function
 
     End Class

@@ -59,57 +59,64 @@ Namespace Forms
             Me.MaximizeBox = False : Me.MinimizeBox = False
             Me.Font = UiTheme.BaseFont
 
-            Me.Controls.Add(New Label With {.Text = "Issue Medical Certificate", .Font = UiTheme.SubHeaderFont, .AutoSize = True, .Location = New Point(20, 16)})
+            Dim card = ClinicalUi.NewDialogCard(Me, 548)
+            Const x As Integer = 24
+            Const w As Integer = 500
 
-            Dim y = 56
+            card.Controls.Add(New Label With {.Text = "Issue Medical Certificate", .Font = New Font("Segoe UI Semibold", 11.5F), .ForeColor = ClinicalUi.TextMain, .AutoSize = True, .Location = New Point(x, 20)})
+
+            Dim y = 62
             If fixedEncounterId.HasValue Then
-                lblPatientFixed = New Label With {.Text = fixedPatientName, .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(20, y)}
-                Me.Controls.Add(lblPatientFixed)
-                y += 30
+                lblPatientFixed = New Label With {.Text = fixedPatientName, .ForeColor = ClinicalUi.TextSoft, .AutoSize = True, .Location = New Point(x, y)}
+                card.Controls.Add(lblPatientFixed)
+                y += 36
             Else
-                Me.Controls.Add(New Label With {.Text = "Patient * (type to search)", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, y)})
-                cboPatient = New ComboBox With {.Location = New Point(20, y + 20), .Width = 460}
+                ClinicalUi.AddLabelAt(card, "Patient * (type to search)", x, y)
+                cboPatient = New ComboBox()
                 UiTheme.AttachSearchableCombo(cboPatient, 2, Function(text) SearchPatients(text))
                 AddHandler cboPatient.SelectedIndexChanged, AddressOf CboPatient_SelectedIndexChanged
-                Me.Controls.Add(cboPatient)
-                y += 56
+                ClinicalUi.PlaceCombo(card, cboPatient, x, y + 22, w)
+                y += 70
 
-                Me.Controls.Add(New Label With {.Text = "Encounter *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, y)})
-                cboEncounter = New ComboBox With {.Location = New Point(20, y + 20), .Width = 460, .DropDownStyle = ComboBoxStyle.DropDownList}
-                Me.Controls.Add(cboEncounter)
-                y += 56
+                ClinicalUi.AddLabelAt(card, "Encounter *", x, y)
+                cboEncounter = New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDownList}
+                ClinicalUi.PlaceCombo(card, cboEncounter, x, y + 22, w)
+                y += 70
             End If
 
-            Me.Controls.Add(New Label With {.Text = "Purpose *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, y)})
-            txtPurpose = New TextBox With {.Location = New Point(20, y + 20), .Width = 460, .PlaceholderText = "e.g. Employment, School requirement, Travel"}
-            Me.Controls.Add(txtPurpose)
-            y += 56
+            ClinicalUi.AddLabelAt(card, "Purpose *", x, y)
+            txtPurpose = New TextBox With {.PlaceholderText = "e.g. Employment, School requirement, Travel"}
+            ClinicalUi.PlaceInput(card, txtPurpose, x, y + 22, w)
+            y += 74
 
-            Me.Controls.Add(New Label With {.Text = "Remarks / Findings", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, y)})
-            txtRemarks = New TextBox With {.Location = New Point(20, y + 20), .Width = 460, .Height = 90, .Multiline = True}
-            Me.Controls.Add(txtRemarks)
-            y += 122
+            ClinicalUi.AddLabelAt(card, "Remarks / Findings", x, y)
+            txtRemarks = New TextBox With {.Multiline = True}
+            ClinicalUi.PlaceInput(card, txtRemarks, x, y + 22, w, 90)
+            y += 22 + 90 + 16
 
-            lblError = New Label With {.ForeColor = UiTheme.DangerRed, .AutoSize = True, .Location = New Point(20, y), .MaximumSize = New Size(460, 0)}
-            Me.Controls.Add(lblError)
+            lblError = New Label With {.ForeColor = ClinicalUi.DangerText, .AutoSize = True, .Location = New Point(x, y), .MaximumSize = New Size(w, 0)}
+            card.Controls.Add(lblError)
             y += 40
 
-            Dim btnCancel As New Button With {.Text = "Cancel", .Size = New Size(100, 36), .Location = New Point(280, y)}
-            UiTheme.StyleSecondaryButton(btnCancel)
+            ' Footer: divider, Cancel on the left, the primary action on the right.
+            card.Controls.Add(New Panel With {.Location = New Point(x, y), .Size = New Size(w, 1), .BackColor = ClinicalUi.CardBorder})
+            y += 18
+
+            Dim btnCancel As New Button With {.Text = "Cancel", .Location = New Point(x, y + 4)}
+            ClinicalUi.StyleCancel(btnCancel)
             AddHandler btnCancel.Click, Sub() Me.DialogResult = DialogResult.Cancel
-            Me.Controls.Add(btnCancel)
+            card.Controls.Add(btnCancel)
 
-            Dim btnIssue As New Button With {.Text = "Issue Certificate", .Size = New Size(160, 36), .Location = New Point(390, y)}
-            UiTheme.StylePrimaryButton(btnIssue)
+            Dim btnIssue As New Button With {.Text = "Issue Certificate", .Size = New Size(170, 38)}
+            ClinicalUi.StylePrimary(btnIssue)
+            btnIssue.Location = New Point(x + w - 170, y)
             AddHandler btnIssue.Click, AddressOf BtnIssue_Click
-            Me.Controls.Add(btnIssue)
+            card.Controls.Add(btnIssue)
 
-            ' The fixed-encounter variant (opened from the encounter workspace) has noticeably
-            ' fewer fields than the free-standing one (opened from the Medical Certificates
-            ' module, which adds patient + encounter pickers) -- a single hardcoded dialog height
-            ' meant one variant sat cramped and the other had a large dead gap below the buttons.
-            ' Size to whatever content actually got laid out instead.
-            Me.ClientSize = New Size(Me.ClientSize.Width, y + 36 + 24)
+            ' The fixed-encounter variant (opened from the encounter workspace) has fewer fields than the
+            ' free-standing one (which adds patient + encounter pickers); size to the content actually built.
+            card.Height = y + 38 + 22
+            Me.ClientSize = New Size(580, card.Bottom + 16)
 
         End Sub
 

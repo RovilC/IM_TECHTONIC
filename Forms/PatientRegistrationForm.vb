@@ -26,7 +26,8 @@ Namespace Forms
         Private pnlButtons As Panel
         Private pnlBody As Panel
         Private lblFormError As Label
-        Private pnlProgressTrack, pnlProgressFill As Panel
+        Private pnlStepper As Panel
+        Private Shared ReadOnly StepNames As String() = {"Personal Information", "Contact & Address", "Health Information", "Review"}
 
         ' Step 1
         Private txtPhilhealthNo, txtFirstName, txtMiddleName, txtLastName, txtSuffix, txtOccupation As TextBox
@@ -55,7 +56,7 @@ Namespace Forms
         Private txtAllergies, txtConditions As TextBox
 
         ' Step 4
-        Private lblReview As Label
+        Private pnlReview As TableLayoutPanel
 
         Public Sub New(patientId As Integer?, onSaved As Action(Of Integer))
             Me.editingPatientId = patientId
@@ -90,69 +91,98 @@ Namespace Forms
         End Sub
 
         Private Sub InitializeComponent()
-            Me.BackColor = Color.White
+            Me.BackColor = UiTheme.BackgroundLight
             Me.Font = UiTheme.BaseFont
+            Me.Padding = New Padding(20, 16, 20, 16)
 
-            Dim header As New Panel With {.Dock = DockStyle.Top, .Height = 50}
-            Me.Controls.Add(header)
+            ' ---- Title + subtitle ----
+            Dim header As New Panel With {.Dock = DockStyle.Top, .Height = 62}
             header.Controls.Add(New Label With {
                 .Text = If(editingPatientId.HasValue, "Edit Patient Record", "Patient Registration"),
-                .Font = UiTheme.SubHeaderFont, .ForeColor = UiTheme.TextDark, .AutoSize = True, .Location = New Point(0, 4)
+                .Font = New Font("Segoe UI", 18.0F, FontStyle.Bold), .ForeColor = UiTheme.TextDark, .AutoSize = True, .Location = New Point(0, 0)
             })
-            lblStepIndicator = New Label With {.Text = "", .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(0, 28)}
+            lblStepIndicator = New Label With {
+                .Text = If(editingPatientId.HasValue, "Update this patient's details in the RHU Health Records System", "Register a new patient in the RHU Health Records System"),
+                .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(2, 36)
+            }
             header.Controls.Add(lblStepIndicator)
 
-            ' Visual step progress -- a thin fill bar under the header that grows with currentStep,
-            ' kept in sync with the track's actual (possibly not-yet-final at construction time)
-            ' width via a Resize handler rather than a one-time pixel calculation.
-            pnlProgressTrack = New Panel With {.Dock = DockStyle.Top, .Height = 5, .BackColor = UiTheme.BorderLight}
-            Me.Controls.Add(pnlProgressTrack)
-            pnlProgressFill = New Panel With {.Dock = DockStyle.Left, .Width = 0, .BackColor = UiTheme.PrimaryGreen}
-            pnlProgressTrack.Controls.Add(pnlProgressFill)
-            AddHandler pnlProgressTrack.Resize, Sub() UpdateProgressBar()
+            ' ---- Stepper card: current step highlighted, finished steps ticked, upcoming steps greyed ----
+            Dim stepperWrap As New Panel With {.Dock = DockStyle.Top, .Height = 80, .Padding = New Padding(0, 0, 0, 14)}
+            pnlStepper = New Panel With {.Dock = DockStyle.Fill, .BackColor = Color.White}
+            SetDoubleBuffered(pnlStepper)
+            AddHandler pnlStepper.Paint, AddressOf PaintStepper
+            AddHandler pnlStepper.Paint, Sub(s, e) DrawCardBorder(e.Graphics, pnlStepper)
+            ' Finished steps can be clicked to jump back to them.
+            AddHandler pnlStepper.MouseClick,
+                Sub(s, e)
+                    Dim i = (e.X - StepperLeft) \ StepItemWidth
+                    If e.X >= StepperLeft AndAlso i >= 0 AndAlso i < currentStep Then ShowStep(i)
+                End Sub
+            AddHandler pnlStepper.MouseMove,
+                Sub(s, e)
+                    Dim i = (e.X - StepperLeft) \ StepItemWidth
+                    pnlStepper.Cursor = If(e.X >= StepperLeft AndAlso i >= 0 AndAlso i < currentStep, Cursors.Hand, Cursors.Default)
+                End Sub
+            stepperWrap.Controls.Add(pnlStepper)
 
-            pnlButtons = New Panel With {.Dock = DockStyle.Bottom, .Height = 56}
-            Me.Controls.Add(pnlButtons)
+            ' ---- Form card holding the step body and the button row ----
+            Dim card As New Panel With {.Dock = DockStyle.Fill, .BackColor = Color.White, .Padding = New Padding(28, 24, 28, 8)}
+            SetDoubleBuffered(card)
+            AddHandler card.Paint, Sub(s, e) DrawCardBorder(e.Graphics, card)
 
-            btnCancel = New Button With {.Text = "Cancel", .Size = New Size(100, 36), .Location = New Point(0, 10)}
+            pnlButtons = New Panel With {.Dock = DockStyle.Bottom, .Height = 64}
+            AddHandler pnlButtons.Paint,
+                Sub(s, e)
+                    Using pen As New Pen(UiTheme.BorderLight)
+                        e.Graphics.DrawLine(pen, 0, 0, pnlButtons.Width, 0)
+                    End Using
+                End Sub
+            card.Controls.Add(pnlButtons)
+
+            btnCancel = New Button With {.Text = "Cancel", .Size = New Size(100, 36), .Location = New Point(0, 16)}
             UiTheme.StyleSecondaryButton(btnCancel)
             AddHandler btnCancel.Click, Sub() BtnCancel_Click()
             pnlButtons.Controls.Add(btnCancel)
 
-            btnBack = New Button With {.Text = "<- Back", .Size = New Size(100, 36), .Location = New Point(110, 10)}
+            btnBack = New Button With {.Text = "<- Back", .Size = New Size(100, 36), .Location = New Point(110, 16)}
             UiTheme.StyleSecondaryButton(btnBack)
             AddHandler btnBack.Click, Sub() ShowStep(currentStep - 1)
             pnlButtons.Controls.Add(btnBack)
 
             btnNext = New Button With {.Text = "Next ->", .Size = New Size(110, 36)}
             UiTheme.StylePrimaryButton(btnNext)
-            UiTheme.PinToRight(btnNext, pnlButtons, 0, 10)
+            UiTheme.PinToRight(btnNext, pnlButtons, 0, 16)
             AddHandler btnNext.Click, Sub() TryAdvance()
             pnlButtons.Controls.Add(btnNext)
 
             btnSave = New Button With {.Text = "Save Patient", .Size = New Size(140, 36)}
             UiTheme.StylePrimaryButton(btnSave)
-            UiTheme.PinToRight(btnSave, pnlButtons, 0, 10)
+            UiTheme.PinToRight(btnSave, pnlButtons, 0, 16)
             AddHandler btnSave.Click, AddressOf BtnSave_Click
             pnlButtons.Controls.Add(btnSave)
 
-            ' Panel is 24px tall but the label sat at Y=40 inside it -- entirely below the
-            ' panel's own visible bounds, so every validation error on this form (including the
-            ' new contact-number checks) rendered invisible. Panel height now actually fits the
-            ' label, with room for a two-line wrapped message.
-            lblFormError = New Label With {.Text = "", .ForeColor = UiTheme.DangerRed, .AutoSize = True, .MaximumSize = New Size(700, 0), .Location = New Point(0, 4)}
-            Dim errPanel As New Panel With {.Dock = DockStyle.Top, .Height = 40}
+            ' Validation messages: the panel must be tall enough to actually show the label
+            ' (an earlier version placed the label below the panel bounds, hiding every error).
+            lblFormError = New Label With {.Text = "", .ForeColor = UiTheme.DangerRed, .AutoSize = True, .MaximumSize = New Size(700, 0), .Location = New Point(0, 0)}
+            Dim errPanel As New Panel With {.Dock = DockStyle.Top, .Height = 30}
             errPanel.Controls.Add(lblFormError)
-            Me.Controls.Add(errPanel)
 
-            pnlBody = New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True}
-            Me.Controls.Add(pnlBody)
+            pnlBody = New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True, .BackColor = Color.White}
+            card.Controls.Add(pnlBody)
             pnlBody.BringToFront()
+
+            ' Fill control first, then Top panels in reverse visual order (last added sits at the very top).
+            Me.Controls.Add(card)
+            Me.Controls.Add(errPanel)
+            Me.Controls.Add(stepperWrap)
+            Me.Controls.Add(header)
 
             steps = New Panel() {BuildStep1(), BuildStep2(), BuildStep3(), BuildStep4()}
             For Each s In steps
                 s.Visible = False
                 s.Dock = DockStyle.Fill
+                s.BackColor = Color.White
                 pnlBody.Controls.Add(s)
             Next
 
@@ -160,6 +190,49 @@ Namespace Forms
             ' wired here (not in BuildStep1/BuildStep3) since both controls must already exist.
             AddHandler txtPhilhealthNo.TextChanged, Sub() UpdatePhilhealthFieldsState()
             UpdatePhilhealthFieldsState()
+        End Sub
+
+        Private Const StepperLeft As Integer = 20
+        Private Const StepItemWidth As Integer = 190
+
+        Private Shared Sub SetDoubleBuffered(c As Control)
+            GetType(Control).GetProperty("DoubleBuffered", Reflection.BindingFlags.Instance Or Reflection.BindingFlags.NonPublic).SetValue(c, True)
+        End Sub
+
+        Private Shared Sub DrawCardBorder(g As Graphics, c As Control)
+            Using pen As New Pen(UiTheme.BorderLight)
+                g.DrawRectangle(pen, 0, 0, c.Width - 1, c.Height - 1)
+            End Using
+        End Sub
+
+        Private Sub PaintStepper(sender As Object, e As PaintEventArgs)
+            Dim g = e.Graphics
+            g.SmoothingMode = Drawing2D.SmoothingMode.AntiAlias
+            Const d As Integer = 28
+            Dim cy = pnlStepper.Height \ 2
+            Using numFont As New Font("Segoe UI", 9.0F, FontStyle.Bold),
+                  activeFont As New Font("Segoe UI", 10.0F, FontStyle.Bold),
+                  idleFont As New Font("Segoe UI", 10.0F),
+                  greyFill As New SolidBrush(Color.FromArgb(235, 239, 236)),
+                  greenFill As New SolidBrush(UiTheme.PrimaryGreen),
+                  darkBrush As New SolidBrush(UiTheme.TextDark),
+                  mutedBrush As New SolidBrush(UiTheme.TextMuted)
+                For i = 0 To StepNames.Length - 1
+                    Dim x = StepperLeft + i * StepItemWidth
+                    Dim circle As New Rectangle(x, cy - d \ 2, d, d)
+                    Dim isCurrent = (i = currentStep)
+                    Dim isDone = (i < currentStep)
+                    g.FillEllipse(If(isCurrent OrElse isDone, greenFill, greyFill), circle)
+                    Dim glyph = If(isDone, ChrW(&H2713).ToString(), (i + 1).ToString())
+                    Using fmt As New StringFormat With {.Alignment = StringAlignment.Center, .LineAlignment = StringAlignment.Center}
+                        g.DrawString(glyph, numFont, If(isCurrent OrElse isDone, Brushes.White, Brushes.DimGray), circle, fmt)
+                    End Using
+                    Dim labelRect As New Rectangle(x + d + 10, cy - 12, StepItemWidth - d - 14, 24)
+                    Using fmt As New StringFormat With {.LineAlignment = StringAlignment.Center, .Trimming = StringTrimming.EllipsisCharacter, .FormatFlags = StringFormatFlags.NoWrap}
+                        g.DrawString(StepNames(i), If(isCurrent, activeFont, idleFont), If(isCurrent, greenFill, If(isDone, darkBrush, mutedBrush)), labelRect, fmt)
+                    End Using
+                Next
+            End Using
         End Sub
 
         ''' <summary>Enter behaves like Tab (moves to the next field) instead of doing nothing/beeping, except inside a multiline box (where Enter must still insert a newline) or while a dropdown is open (where Enter should pick the highlighted item, not skip past it).</summary>
@@ -190,7 +263,17 @@ Namespace Forms
         ' ---------------- Step builders ----------------
 
         Private Function LabeledField(container As Panel, label As String, x As Integer, y As Integer, ctrl As Control, Optional width As Integer = 260) As Control
-            container.Controls.Add(New Label With {.Text = label, .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(x, y)})
+            Dim required = label.EndsWith("*")
+            Dim text = label.TrimEnd("*"c).TrimEnd()
+            Dim lblFont As New Font("Segoe UI", 8.75F, FontStyle.Bold)
+            container.Controls.Add(New Label With {.Text = text, .Font = lblFont, .ForeColor = UiTheme.TextDark, .AutoSize = True, .Location = New Point(x, y)})
+            If required Then
+                Dim tw = TextRenderer.MeasureText(text, lblFont, New Size(Integer.MaxValue, Integer.MaxValue), TextFormatFlags.NoPadding).Width
+                container.Controls.Add(New Label With {.Text = "*", .Font = lblFont, .ForeColor = UiTheme.DangerRed, .AutoSize = True, .Location = New Point(x + tw + 1, y)})
+            End If
+            Dim tb = TryCast(ctrl, TextBox)
+            If tb IsNot Nothing AndAlso Not tb.Multiline Then tb.BorderStyle = BorderStyle.FixedSingle
+            ctrl.Font = New Font("Segoe UI", 10.0F)
             ctrl.Location = New Point(x, y + 20)
             ctrl.Width = width
             container.Controls.Add(ctrl)
@@ -201,28 +284,34 @@ Namespace Forms
             Dim p As New Panel()
             p.Controls.Add(New Label With {.Text = "Personal Information", .Font = UiTheme.SubHeaderFont, .AutoSize = True, .Location = New Point(0, 0)})
 
-            txtPhilhealthNo = New TextBox() : LabeledField(p, "PhilHealth No.", 0, 40, txtPhilhealthNo)
-            txtFirstName = New TextBox() : LabeledField(p, "First Name *", 280, 40, txtFirstName)
-            txtMiddleName = New TextBox() : LabeledField(p, "Middle Name", 560, 40, txtMiddleName)
+            ' Grouped into labelled sections, each with a rule above it; same 3-column grid (x = 0 / 280 / 560)
+            ' as the other steps, with the name group using four columns so all name parts sit on one row.
+            AddSectionHeading(p, "PhilHealth", 40)
+            txtPhilhealthNo = New TextBox() : LabeledField(p, "PhilHealth No.", 0, 80, txtPhilhealthNo)
+            p.Controls.Add(New Label With {.Text = "Leave blank if the patient has no PhilHealth number.", .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(280, 106)})
 
-            txtLastName = New TextBox() : LabeledField(p, "Last Name *", 0, 96, txtLastName)
-            txtSuffix = New TextBox() : LabeledField(p, "Suffix", 280, 96, txtSuffix, 120)
+            AddSectionHeading(p, "Name", 150)
+            txtFirstName = New TextBox() : LabeledField(p, "First Name *", 0, 190, txtFirstName, 195)
+            txtMiddleName = New TextBox() : LabeledField(p, "Middle Name", 205, 190, txtMiddleName, 195)
+            txtLastName = New TextBox() : LabeledField(p, "Last Name *", 410, 190, txtLastName, 195)
+            txtSuffix = New TextBox() : LabeledField(p, "Suffix", 615, 190, txtSuffix, 205)
 
+            AddSectionHeading(p, "Birthday && Sex", 260)
             dtpDob = New DateTimePicker With {.Format = DateTimePickerFormat.Short, .MaxDate = DateTime.Today}
-            LabeledField(p, "Date of Birth *", 0, 152, dtpDob)
+            LabeledField(p, "Date of Birth *", 0, 300, dtpDob)
             AddHandler dtpDob.ValueChanged, Sub() UpdateAgeLabel()
-            lblAge = New Label With {.Text = "", .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(280, 176)}
+            p.Controls.Add(New Label With {.Text = "Age (auto-computed)", .Font = New Font("Segoe UI", 8.75F, FontStyle.Bold), .ForeColor = UiTheme.TextDark, .AutoSize = True, .Location = New Point(280, 300)})
+            lblAge = New Label With {.Text = "", .Font = New Font("Segoe UI", 10.0F), .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(280, 324)}
             p.Controls.Add(lblAge)
-
             cboSex = New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDownList}
             cboSex.Items.AddRange({"Male", "Female"})
-            LabeledField(p, "Sex *", 560, 152, cboSex, 150)
+            LabeledField(p, "Sex *", 560, 300, cboSex)
 
+            AddSectionHeading(p, "Civil Status && Occupation", 370)
             cboCivilStatus = New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDownList}
             cboCivilStatus.Items.AddRange({"Single", "Married", "Widowed", "Separated", "Divorced"})
-            LabeledField(p, "Civil Status", 0, 208, cboCivilStatus)
-
-            txtOccupation = New TextBox() : LabeledField(p, "Occupation", 280, 208, txtOccupation)
+            LabeledField(p, "Civil Status", 0, 410, cboCivilStatus)
+            txtOccupation = New TextBox() : LabeledField(p, "Occupation", 280, 410, txtOccupation, 540)
 
             UpdateAgeLabel()
             Return p
@@ -237,51 +326,59 @@ Namespace Forms
 
         Private Function BuildStep2() As Panel
             Dim p As New Panel()
-            p.Controls.Add(New Label With {.Text = "Contact & Address", .Font = UiTheme.SubHeaderFont, .AutoSize = True, .Location = New Point(0, 0)})
+            ' "&&" -- a single "&" in a Label is swallowed as a keyboard-mnemonic marker.
+            p.Controls.Add(New Label With {.Text = "Contact && Address", .Font = UiTheme.SubHeaderFont, .AutoSize = True, .Location = New Point(0, 0)})
 
+            ' Three-column grid (x = 0 / 280 / 560) and a steady 70px row pitch so the fields breathe evenly.
             txtContact = New TextBox() : LabeledField(p, "Contact Number *", 0, 40, txtContact)
             txtAltContact = New TextBox() : LabeledField(p, "Alternate Contact", 280, 40, txtAltContact)
 
-            txtAddress = New TextBox() : LabeledField(p, "House No. / Street / Purok", 0, 96, txtAddress, 540)
+            txtAddress = New TextBox() : LabeledField(p, "House No. / Street / Purok", 0, 110, txtAddress, 540)
 
             cboBarangay = New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDownList}
-            LabeledField(p, "Barangay *", 0, 152, cboBarangay)
-            p.Controls.Add(New Label With {.Text = "Municipality: Vinzons   |   Province: Camarines Norte", .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(280, 176)})
+            LabeledField(p, "Barangay *", 0, 180, cboBarangay)
+            p.Controls.Add(New Label With {.Text = "Municipality: Vinzons   |   Province: Camarines Norte", .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(280, 206)})
 
-            p.Controls.Add(New Label With {.Text = "Emergency Contact (optional)", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 220)})
-            txtEmergName = New TextBox() : LabeledField(p, "Contact Name", 0, 250, txtEmergName)
+            AddSectionHeading(p, "Emergency Contact (optional)", 270)
+            txtEmergName = New TextBox() : LabeledField(p, "Contact Name", 0, 310, txtEmergName)
             cboEmergRelationship = New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDownList}
             cboEmergRelationship.Items.AddRange({"Parent", "Spouse", "Sibling", "Child", "Relative", "Guardian", "Other"})
-            LabeledField(p, "Relationship", 280, 250, cboEmergRelationship, 180)
-            txtEmergContact = New TextBox() : LabeledField(p, "Contact No.", 480, 250, txtEmergContact)
+            LabeledField(p, "Relationship", 280, 310, cboEmergRelationship)
+            txtEmergContact = New TextBox() : LabeledField(p, "Contact No.", 560, 310, txtEmergContact)
 
-            BuildHouseholdSection(p, 310)
+            BuildHouseholdSection(p, 400)
             p.AutoScroll = True
             Return p
         End Function
 
+        ''' <summary>Section heading with a thin rule above it, used to separate groups inside a step.</summary>
+        Private Sub AddSectionHeading(p As Panel, text As String, y As Integer)
+            p.Controls.Add(New Panel With {.Location = New Point(0, y), .Size = New Size(820, 1), .BackColor = UiTheme.BorderLight})
+            p.Controls.Add(New Label With {.Text = text, .Font = UiTheme.BoldFont, .ForeColor = UiTheme.TextDark, .AutoSize = True, .Location = New Point(0, y + 12)})
+        End Sub
+
         ''' <summary>
-        ''' "Is the patient part of a household?" -- Yes: search an existing household (suggestions
-        ''' as you type, pre-filled with households headed by someone sharing the patient's last
-        ''' name) and optionally make the patient its head. No: a new household is registered at
-        ''' the patient's address, with the patient as its head unless unticked.
+        ''' "Is the patient part of a household?" -- the search field is always on screen but locked
+        ''' (greyed) until an answer is picked. Yes: search an existing household (suggestions as you
+        ''' type, pre-filled with households headed by someone sharing the patient's last name) and
+        ''' optionally make the patient its head. No: the locked field is auto-filled with the new
+        ''' household registered at the patient's address, with the patient as head unless unticked.
         ''' </summary>
         Private Sub BuildHouseholdSection(p As Panel, y As Integer)
-            p.Controls.Add(New Label With {.Text = "Household", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, y)})
-            p.Controls.Add(New Label With {.Text = "Is the patient part of an existing household? *", .AutoSize = True, .Location = New Point(0, y + 26)})
+            AddSectionHeading(p, "Household", y)
+            p.Controls.Add(New Label With {.Text = "Is the patient part of an existing household? *", .AutoSize = True, .Location = New Point(0, y + 46)})
 
-            Dim radios As New Panel With {.Location = New Point(300, y + 20), .Size = New Size(200, 28)}
+            Dim radios As New Panel With {.Location = New Point(330, y + 40), .Size = New Size(200, 30)}
             rbHouseholdYes = New RadioButton With {.Text = "Yes", .AutoSize = True, .Location = New Point(0, 4)}
-            rbHouseholdNo = New RadioButton With {.Text = "No", .AutoSize = True, .Location = New Point(70, 4)}
+            rbHouseholdNo = New RadioButton With {.Text = "No", .AutoSize = True, .Location = New Point(80, 4)}
             radios.Controls.AddRange({rbHouseholdYes, rbHouseholdNo})
             p.Controls.Add(radios)
             AddHandler rbHouseholdYes.CheckedChanged, Sub() UpdateHouseholdPanels()
             AddHandler rbHouseholdNo.CheckedChanged, Sub() UpdateHouseholdPanels()
 
-            ' -- Yes: pick an existing household --
-            pnlHouseholdExisting = New Panel With {.Location = New Point(0, y + 54), .Size = New Size(760, 110), .Visible = False}
-            pnlHouseholdExisting.Controls.Add(New Label With {.Text = "Search Household (household no., head's name, address or barangay) *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 0)})
-            cboHousehold = New ComboBox With {.Location = New Point(0, 20), .Width = 620}
+            pnlHouseholdExisting = New Panel With {.Location = New Point(0, y + 86), .Size = New Size(840, 120)}
+            pnlHouseholdExisting.Controls.Add(New Label With {.Text = "Search Household (household no., head's name, address or barangay) *", .Font = New Font("Segoe UI", 8.75F, FontStyle.Bold), .AutoSize = True, .Location = New Point(0, 0)})
+            cboHousehold = New ComboBox With {.Location = New Point(0, 22), .Width = 820, .Font = New Font("Segoe UI", 10.0F)}
             UiTheme.AttachSearchableCombo(cboHousehold, 2, Function(text) SearchHouseholds(text))
             AddHandler cboHousehold.SelectedIndexChanged,
                 Sub()
@@ -297,38 +394,46 @@ Namespace Forms
                     End If
                 End Sub
             pnlHouseholdExisting.Controls.Add(cboHousehold)
-            lblHouseholdInfo = New Label With {.AutoSize = True, .ForeColor = UiTheme.TextMuted, .Location = New Point(0, 50), .MaximumSize = New Size(740, 0)}
+            lblHouseholdInfo = New Label With {.AutoSize = True, .ForeColor = UiTheme.TextMuted, .Location = New Point(0, 62), .MaximumSize = New Size(820, 0)}
             pnlHouseholdExisting.Controls.Add(lblHouseholdInfo)
-            chkHeadExisting = New CheckBox With {.Text = "Patient is the head of this household", .AutoSize = True, .Location = New Point(0, 76)}
+            chkHeadExisting = New CheckBox With {.Text = "Patient is the head of this household", .AutoSize = True, .Location = New Point(0, 92)}
             pnlHouseholdExisting.Controls.Add(chkHeadExisting)
-
-            ' -- No: the same field stays visible, locked and auto-filled with the new household to be registered --
-            chkHeadNew = New CheckBox With {.Text = "Patient is the head of the new household", .AutoSize = True, .Checked = True, .Location = New Point(0, 76), .Visible = False}
+            chkHeadNew = New CheckBox With {.Text = "Patient is the head of the new household", .AutoSize = True, .Checked = True, .Location = New Point(0, 92), .Visible = False}
             pnlHouseholdExisting.Controls.Add(chkHeadNew)
             p.Controls.Add(pnlHouseholdExisting)
 
-            ' Keep the auto-filled new household current when the address/barangay change or the step is re-shown after editing the name.
+            ' Keep the auto-filled new household current when the address/barangay change.
             AddHandler txtAddress.TextChanged, Sub() If rbHouseholdNo.Checked Then FillNewHouseholdPreview()
             AddHandler cboBarangay.SelectedIndexChanged, Sub() If rbHouseholdNo.Checked Then FillNewHouseholdPreview()
             AddHandler chkHeadNew.CheckedChanged, Sub() If rbHouseholdNo.Checked Then FillNewHouseholdPreview()
-            AddHandler pnlHouseholdExisting.VisibleChanged, Sub() If pnlHouseholdExisting.Visible AndAlso rbHouseholdNo.Checked Then FillNewHouseholdPreview()
+
+            UpdateHouseholdPanels() ' initial state: nothing answered -> everything locked and grey
         End Sub
 
         Private Sub UpdateHouseholdPanels()
             Dim isNew = rbHouseholdNo.Checked
-            pnlHouseholdExisting.Visible = rbHouseholdYes.Checked OrElse isNew
-            cboHousehold.Enabled = Not isNew
+            Dim isYes = rbHouseholdYes.Checked
+
+            cboHousehold.Enabled = isYes
+            cboHousehold.BackColor = If(isYes, Color.White, Color.FromArgb(236, 239, 237))
             chkHeadExisting.Visible = Not isNew
+            chkHeadExisting.Enabled = isYes
             chkHeadNew.Visible = isNew
             If isNew Then
                 selectedHousehold = Nothing
                 cboHousehold.Items.Clear()
                 FillNewHouseholdPreview()
-            ElseIf rbHouseholdYes.Checked Then
+            ElseIf isYes Then
                 If cboHousehold.Text.StartsWith(NewHouseholdMarker) Then cboHousehold.Text = ""
                 If selectedHousehold Is Nothing AndAlso cboHousehold.Text.Trim().Length = 0 Then LoadSuggestedHouseholds()
+            Else
+                selectedHousehold = Nothing
+                cboHousehold.Items.Clear()
+                cboHousehold.Text = ""
+                chkHeadExisting.Checked = False
             End If
             UpdateHouseholdInfo()
+            If Not isNew AndAlso Not isYes Then lblHouseholdInfo.Text = "Answer the question above to enable this section."
         End Sub
 
         Private Const NewHouseholdMarker As String = "(New) "
@@ -461,8 +566,33 @@ Namespace Forms
         Private Function BuildStep4() As Panel
             Dim p As New Panel()
             p.Controls.Add(New Label With {.Text = "Review Registration Details", .Font = UiTheme.SubHeaderFont, .AutoSize = True, .Location = New Point(0, 0)})
-            lblReview = New Label With {.AutoSize = True, .Location = New Point(0, 40), .Font = UiTheme.BaseFont}
-            p.Controls.Add(lblReview)
+
+            ' Tinted summary panel: small muted caption above a bold value, two columns.
+            pnlReview = New TableLayoutPanel With {
+                .ColumnCount = 2, .AutoSize = True, .AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                .BackColor = Color.FromArgb(241, 246, 242), .Padding = New Padding(22, 20, 22, 4), .Margin = New Padding(0)
+            }
+            pnlReview.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 400))
+            pnlReview.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 400))
+            AddHandler pnlReview.Paint,
+                Sub(s, e)
+                    Using pen As New Pen(Color.FromArgb(221, 232, 224))
+                        e.Graphics.DrawRectangle(pen, 0, 0, pnlReview.Width - 1, pnlReview.Height - 1)
+                    End Using
+                End Sub
+
+            Dim note As New Label With {
+                .Text = "Review all information before saving. Go back to correct any errors.",
+                .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Margin = New Padding(0, 14, 0, 0)
+            }
+            Dim stack As New FlowLayoutPanel With {
+                .FlowDirection = FlowDirection.TopDown, .WrapContents = False, .AutoSize = True,
+                .Location = New Point(0, 40), .Margin = New Padding(0)
+            }
+            stack.Controls.Add(pnlReview)
+            stack.Controls.Add(note)
+            p.Controls.Add(stack)
+            p.AutoScroll = True
             Return p
         End Function
 
@@ -546,18 +676,16 @@ Namespace Forms
                 steps(i).Visible = (i = index)
             Next
             currentStep = index
-            lblStepIndicator.Text = $"Step {currentStep + 1} of {steps.Length}"
             btnBack.Visible = currentStep > 0
             btnNext.Visible = currentStep < steps.Length - 1
             btnSave.Visible = currentStep = steps.Length - 1
+            If currentStep = 1 AndAlso rbHouseholdNo.Checked Then FillNewHouseholdPreview()
             If currentStep = steps.Length - 1 Then BuildReviewText()
             UpdateProgressBar()
         End Sub
 
         Private Sub UpdateProgressBar()
-            If pnlProgressTrack Is Nothing OrElse pnlProgressTrack.Width <= 0 Then Return
-            Dim pct = (currentStep + 1) / CDbl(steps.Length)
-            pnlProgressFill.Width = CInt(pnlProgressTrack.Width * pct)
+            If pnlStepper IsNot Nothing Then pnlStepper.Invalidate()
         End Sub
 
         Private Sub TryAdvance()
@@ -617,21 +745,56 @@ Namespace Forms
         End Function
 
         Private Sub BuildReviewText()
-            Dim barangayName = If(cboBarangay.SelectedItem IsNot Nothing, CType(cboBarangay.SelectedItem, BarangayItem).Name, "")
-            lblReview.Text =
-                $"Full Name: {txtLastName.Text}, {txtFirstName.Text} {txtMiddleName.Text} {txtSuffix.Text}" & vbCrLf &
-                $"Date of Birth: {dtpDob.Value:MM/dd/yyyy}   ({lblAge.Text})" & vbCrLf &
-                $"Sex: {cboSex.Text}   Civil Status: {cboCivilStatus.Text}   Occupation: {txtOccupation.Text}" & vbCrLf & vbCrLf &
-                $"Contact: {txtContact.Text}   Alt. Contact: {txtAltContact.Text}" & vbCrLf &
-                $"Address: {txtAddress.Text}, {barangayName}, Vinzons, Camarines Norte" & vbCrLf &
-                $"Emergency Contact: {txtEmergName.Text} ({txtEmergRelationship_Text()}) - {txtEmergContact.Text}" & vbCrLf &
-                $"Household: {HouseholdReviewText()}" & vbCrLf & vbCrLf &
-                $"Blood Type: {cboBloodType.Text}   Membership: {cboMembership.Text}" & vbCrLf &
-                $"PhilHealth: {cboPhilhealthStatus.Text} / {cboPhilhealthCategory.Text}   No: {txtPhilhealthNo.Text}" & vbCrLf &
-                $"Allergies: {AllergiesOrNA()}" & vbCrLf &
-                $"Existing Conditions: {If(String.IsNullOrWhiteSpace(txtConditions.Text), "None declared", txtConditions.Text)}" & vbCrLf & vbCrLf &
-                "Review all information before saving. Go back to correct any errors."
+            Dim barangayName = If(cboBarangay.SelectedItem IsNot Nothing, CType(cboBarangay.SelectedItem, BarangayItem).Name, "-")
+            Dim fullName = String.Join(" ", {txtFirstName.Text.Trim(), txtMiddleName.Text.Trim(), txtLastName.Text.Trim(), txtSuffix.Text.Trim()}.Where(Function(x) x.Length > 0))
+            Dim emerg = If(String.IsNullOrWhiteSpace(txtEmergName.Text), "-",
+                           $"{txtEmergName.Text.Trim()} ({txtEmergRelationship_Text()})" & If(String.IsNullOrWhiteSpace(txtEmergContact.Text), "", $" - {txtEmergContact.Text.Trim()}"))
+            Dim philhealth = If(String.IsNullOrWhiteSpace(txtPhilhealthNo.Text), "-",
+                                $"{txtPhilhealthNo.Text.Trim()} ({cboPhilhealthStatus.Text} / {cboPhilhealthCategory.Text})")
+
+            ' Two columns, read left-to-right then down, like the reference mockup.
+            Dim items As (String, String)() = {
+                ("Full Name", fullName),
+                ("Date of Birth", dtpDob.Value.ToString("yyyy-MM-dd")),
+                ("Age", lblAge.Text.Replace("yrs old", "years old")),
+                ("Sex", OrDash(cboSex.Text)),
+                ("Civil Status", OrDash(cboCivilStatus.Text)),
+                ("Occupation", OrDash(txtOccupation.Text)),
+                ("Contact No.", OrDash(txtContact.Text)),
+                ("Alternate Contact", OrDash(txtAltContact.Text)),
+                ("Address", OrDash(txtAddress.Text)),
+                ("Barangay", barangayName),
+                ("Municipality", "Vinzons, Camarines Norte"),
+                ("Emergency Contact", emerg),
+                ("Household", HouseholdReviewText()),
+                ("PhilHealth", philhealth),
+                ("Blood Type", OrDash(cboBloodType.Text)),
+                ("Membership", OrDash(cboMembership.Text)),
+                ("Allergies", AllergiesOrNA()),
+                ("Existing Conditions", If(String.IsNullOrWhiteSpace(txtConditions.Text), "None declared", txtConditions.Text.Trim()))
+            }
+
+            pnlReview.SuspendLayout()
+            UiTheme.ClearAndDispose(pnlReview)
+            pnlReview.RowStyles.Clear()
+            pnlReview.RowCount = 0
+            Dim captionFont As New Font("Segoe UI", 8.5F)
+            Dim valueFont As New Font("Segoe UI", 10.5F, FontStyle.Bold)
+            For i = 0 To items.Length - 1
+                Dim cell As New FlowLayoutPanel With {
+                    .FlowDirection = FlowDirection.TopDown, .WrapContents = False, .AutoSize = True,
+                    .Margin = New Padding(0, 0, 16, 16), .BackColor = Color.Transparent
+                }
+                cell.Controls.Add(New Label With {.Text = items(i).Item1, .Font = captionFont, .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Margin = New Padding(0, 0, 0, 2)})
+                cell.Controls.Add(New Label With {.Text = items(i).Item2, .Font = valueFont, .ForeColor = UiTheme.TextDark, .AutoSize = True, .MaximumSize = New Size(370, 0), .Margin = New Padding(0)})
+                pnlReview.Controls.Add(cell, i Mod 2, i \ 2)
+            Next
+            pnlReview.ResumeLayout()
         End Sub
+
+        Private Shared Function OrDash(s As String) As String
+            Return If(String.IsNullOrWhiteSpace(s), "-", s.Trim())
+        End Function
 
         Private Function HouseholdReviewText() As String
             If rbHouseholdYes.Checked AndAlso selectedHousehold IsNot Nothing Then

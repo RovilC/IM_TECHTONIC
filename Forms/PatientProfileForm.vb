@@ -1,4 +1,4 @@
-Imports System.Drawing
+﻿Imports System.Drawing
 Imports System.Windows.Forms
 Imports TechTonic_IM_RHU.Data
 Imports TechTonic_IM_RHU.Models
@@ -37,23 +37,37 @@ Namespace Forms
 
         Private Sub InitializeComponent()
             Me.BackColor = UiTheme.BackgroundLight
-            Me.Font = UiTheme.BaseFont
+            Me.Font = New Font("Segoe UI", 9.0F)
+            Me.Padding = New Padding(20, 16, 20, 16)
 
-            Dim card As New Panel With {.Dock = DockStyle.Top, .Height = 130, .BackColor = Color.White, .Padding = New Padding(20)}
+            ' Dock order: later-added Top controls sit higher, so the gap spacer goes first, then the header card.
+            Me.Controls.Add(New Panel With {.Dock = DockStyle.Top, .Height = 14})
+
+            ' ---- Header card: 6px green top bar, thin border, white body ----
+            Dim card As New Panel With {.Dock = DockStyle.Top, .Height = 146, .BackColor = Color.White}
+            SetDoubleBuffered(card)
+            AddHandler card.Paint,
+                Sub(s, e)
+                    Using pen As New Pen(UiTheme.BorderLight)
+                        e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1)
+                    End Using
+                    Using bar As New SolidBrush(ProfileGreen)
+                        e.Graphics.FillRectangle(bar, 0, 0, card.Width, 6)
+                    End Using
+                End Sub
             Me.Controls.Add(card)
 
-            lblName = New Label With {.Font = New Font("Segoe UI", 15.0F, FontStyle.Bold), .ForeColor = UiTheme.TextDark, .AutoSize = True, .Location = New Point(20, 14)}
+            lblName = New Label With {.Font = New Font("Segoe UI", 13.5F, FontStyle.Bold), .ForeColor = UiTheme.TextDark, .AutoSize = True, .Location = New Point(24, 24)}
             card.Controls.Add(lblName)
-            lblMeta = New Label With {.ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(20, 44)}
+            lblMeta = New Label With {.Font = New Font("Segoe UI", 9.0F), .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(24, 58)}
             card.Controls.Add(lblMeta)
-            lblConditions = New Label With {.ForeColor = UiTheme.DangerRed, .AutoSize = True, .Location = New Point(20, 68), .MaximumSize = New Size(700, 0)}
+            lblConditions = New Label With {.Font = New Font("Segoe UI", 8.5F, FontStyle.Bold), .ForeColor = UiTheme.DangerRed, .AutoSize = True, .Location = New Point(24, 88), .MaximumSize = New Size(640, 0)}
             card.Controls.Add(lblConditions)
 
-            ' First button sits flush right, the rest stack to its left (PinRowToRight).
-            Dim buttons As New List(Of Control)
+            ' Action buttons: equal width, stacked vertically on the right, outlined in green.
+            Dim buttons As New List(Of Button)
             If canAccessEncounters Then
-                Dim btnNewEncounter As New Button With {.Text = "+ New Encounter", .Size = New Size(160, 36)}
-                UiTheme.StylePrimaryButton(btnNewEncounter)
+                Dim btnNewEncounter As New Button With {.Text = "+ New Encounter"}
                 AddHandler btnNewEncounter.Click, AddressOf BtnNewEncounter_Click
                 buttons.Add(btnNewEncounter)
             End If
@@ -61,30 +75,63 @@ Namespace Forms
             ' Print Summary and Edit Patient belong to the records roles (those holding "registration");
             ' Healthcare Staff only view the record and work on encounters.
             If Session.Current IsNot Nothing AndAlso Session.Current.HasModule("registration") Then
-                Dim btnPrint As New Button With {.Text = "Print Summary", .Size = New Size(140, 36)}
-                If canAccessEncounters Then UiTheme.StyleSecondaryButton(btnPrint) Else UiTheme.StylePrimaryButton(btnPrint)
+                Dim btnPrint As New Button With {.Text = "Print Summary"}
                 AddHandler btnPrint.Click, Sub() PatientSummaryPrinter.ShowPreview(Me, patientId)
                 buttons.Add(btnPrint)
 
-                Dim btnEdit As New Button With {.Text = "Edit Patient", .Size = New Size(120, 36)}
-                UiTheme.StyleSecondaryButton(btnEdit)
+                Dim btnEdit As New Button With {.Text = "Edit Patient"}
                 AddHandler btnEdit.Click, AddressOf BtnEdit_Click
                 buttons.Add(btnEdit)
             End If
 
+            For Each b In buttons
+                StyleActionButton(b)
+            Next
             card.Controls.AddRange(buttons.ToArray())
-            UiTheme.PinRowToRight(card, 20, 20, 10, buttons.ToArray())
+            Dim placeButtons =
+                Sub()
+                    For i = 0 To buttons.Count - 1
+                        buttons(i).Location = New Point(card.Width - 24 - buttons(i).Width, 20 + i * (buttons(i).Height + 6))
+                    Next
+                End Sub
+            AddHandler card.Resize, Sub() placeButtons()
+            placeButtons()
 
-            tabs = New TabControl With {.Dock = DockStyle.Fill}
+            ' ---- Tab bar (pill-style active tab) + content ----
+            tabs = New PillTabControl With {.Dock = DockStyle.Fill}
             Me.Controls.Add(tabs)
             tabs.BringToFront()
 
             Dim tabInfo As New TabPage("Patient Information") With {.BackColor = Color.White, .AutoScroll = True}
-            pnlInfo = New TableLayoutPanel With {.Location = New Point(16, 16), .AutoSize = True, .ColumnCount = 2}
-            pnlInfo.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170))
-            pnlInfo.ColumnStyles.Add(New ColumnStyle(SizeType.AutoSize))
+            ' Two-column grid; each cell stacks a small uppercase caption over its value.
+            pnlInfo = New TableLayoutPanel With {.Location = New Point(24, 24), .AutoSize = True, .ColumnCount = 2}
+            pnlInfo.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 380))
+            pnlInfo.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 380))
             tabInfo.Controls.Add(pnlInfo)
             tabs.TabPages.Add(tabInfo)
+        End Sub
+
+        Private Shared ReadOnly ProfileGreen As Color = ColorTranslator.FromHtml("#1F5F3F")
+        Private Shared ReadOnly ProfileGreenSoft As Color = ColorTranslator.FromHtml("#E8F3EC")
+
+        Private Shared Sub SetDoubleBuffered(c As Control)
+            GetType(Control).GetProperty("DoubleBuffered", Reflection.BindingFlags.Instance Or Reflection.BindingFlags.NonPublic).SetValue(c, True)
+        End Sub
+
+        Private Shared Sub StyleActionButton(btn As Button)
+            btn.Size = New Size(132, 30)
+            btn.FlatStyle = FlatStyle.Flat
+            btn.BackColor = Color.White
+            btn.ForeColor = ProfileGreen
+            btn.Font = New Font("Segoe UI", 8.5F, FontStyle.Bold)
+            btn.TextAlign = ContentAlignment.MiddleLeft
+            btn.Padding = New Padding(8, 0, 0, 0)
+            btn.Cursor = Cursors.Hand
+            btn.UseVisualStyleBackColor = False
+            btn.FlatAppearance.BorderColor = ProfileGreen
+            btn.FlatAppearance.BorderSize = 1
+            btn.FlatAppearance.MouseOverBackColor = ProfileGreenSoft
+            btn.FlatAppearance.MouseDownBackColor = ProfileGreenSoft
         End Sub
 
         Private Sub LoadPatient()
@@ -107,8 +154,10 @@ Namespace Forms
                 pnlInfo.SuspendLayout()
                 UiTheme.ClearAndDispose(pnlInfo)
                 For Each f In PatientSummaryData.PatientInfoFields(r)
-                    pnlInfo.Controls.Add(New Label With {.Text = f.Label, .Font = UiTheme.BoldFont, .AutoSize = True, .Margin = New Padding(0, 4, 8, 4)})
-                    pnlInfo.Controls.Add(New Label With {.Text = f.Value, .AutoSize = True, .MaximumSize = New Size(800, 0), .Margin = New Padding(0, 4, 0, 4)})
+                    Dim cell As New FlowLayoutPanel With {.FlowDirection = FlowDirection.TopDown, .WrapContents = False, .AutoSize = True, .Margin = New Padding(0, 0, 16, 14)}
+                    cell.Controls.Add(New Label With {.Text = f.Label.ToUpperInvariant(), .Font = New Font("Segoe UI", 7.5F), .ForeColor = ColorTranslator.FromHtml("#9CA3AF"), .AutoSize = True, .Margin = New Padding(0, 0, 0, 2)})
+                    cell.Controls.Add(New Label With {.Text = f.Value, .Font = New Font("Segoe UI Semibold", 9.75F), .ForeColor = UiTheme.TextDark, .AutoSize = True, .MaximumSize = New Size(360, 0), .Margin = New Padding(0)})
+                    pnlInfo.Controls.Add(cell)
                 Next
                 pnlInfo.ResumeLayout()
             Catch ex As Exception

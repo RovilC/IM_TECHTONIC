@@ -22,12 +22,11 @@ Namespace Forms
         Private consultationId As Integer? = Nothing
 
         Private lblBanner, lblBannerMeta, lblTags As Label
-        Private innerNav As TabControl
+        Private innerNav As PillTabControl
 
         ' Triage controls
         Private txtTemp, txtBpSys, txtBpDia, txtHr, txtRr, txtSpo2, txtWeight, txtHeight As TextBox
         Private lblBmi As Label
-        Private numPain As NumericUpDown
         Private txtGeneralAppearance As TextBox
         Private cboTriageClass As ComboBox
 
@@ -67,34 +66,53 @@ Namespace Forms
         End Function
 
         Private Sub InitializeComponent()
-            Me.BackColor = UiTheme.BackgroundLight
+            Me.BackColor = ClinicalUi.PageBg
             Me.Font = UiTheme.BaseFont
+            Me.Padding = New Padding(20, 16, 20, 12)
 
-            Dim banner As New Panel With {.Dock = DockStyle.Top, .Height = 90, .BackColor = Color.White, .Padding = New Padding(20, 10, 20, 10)}
+            ' Dock order: later-added Top controls sit higher -> gap spacer first, then the patient banner.
+            Me.Controls.Add(New Panel With {.Dock = DockStyle.Top, .Height = 14})
+
+            ' ---- Patient summary strip (white card) ----
+            Dim banner As New Panel With {.Dock = DockStyle.Top, .Height = 92, .BackColor = Color.White}
+            ClinicalUi.SetDoubleBuffered(banner)
+            AddHandler banner.Paint,
+                Sub(s, e)
+                    Using pen As New Pen(ClinicalUi.CardBorder)
+                        e.Graphics.DrawRectangle(pen, 0, 0, banner.Width - 1, banner.Height - 1)
+                    End Using
+                End Sub
             Me.Controls.Add(banner)
-            lblBanner = New Label With {.Font = New Font("Segoe UI", 13.0F, FontStyle.Bold), .ForeColor = UiTheme.TextDark, .AutoSize = True, .Location = New Point(20, 8)}
+            lblBanner = New Label With {.Font = New Font("Segoe UI Semibold", 13.5F), .ForeColor = ClinicalUi.TextMain, .AutoSize = True, .Location = New Point(20, 12)}
             banner.Controls.Add(lblBanner)
-            lblBannerMeta = New Label With {.ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(20, 34)}
+            lblBannerMeta = New Label With {.Font = New Font("Segoe UI", 9.0F), .ForeColor = ClinicalUi.TextSoft, .AutoSize = True, .Location = New Point(20, 42)}
             banner.Controls.Add(lblBannerMeta)
-            lblTags = New Label With {.ForeColor = UiTheme.DangerRed, .AutoSize = True, .Location = New Point(20, 56)}
+            lblTags = New Label With {.Font = New Font("Segoe UI", 8.5F, FontStyle.Bold), .ForeColor = ClinicalUi.DangerText, .AutoSize = True, .Location = New Point(20, 64)}
             banner.Controls.Add(lblTags)
-            lblStatus = New Label With {.ForeColor = UiTheme.AccentGreen, .Font = UiTheme.BoldFont, .AutoSize = True}
+            lblStatus = New Label With {.ForeColor = ClinicalUi.Green, .Font = New Font("Segoe UI Semibold", 10.0F), .AutoSize = True}
             banner.Controls.Add(lblStatus)
-            UiTheme.PinToRight(lblStatus, banner, 20, 20)
+            UiTheme.PinToRight(lblStatus, banner, 20, 14)
 
-            innerNav = New TabControl With {.Dock = DockStyle.Fill}
+            innerNav = New PillTabControl With {.Dock = DockStyle.Fill, .PageBackColor = ClinicalUi.PageBg}
             Me.Controls.Add(innerNav)
             innerNav.BringToFront()
 
-            tabTriage = New TabPage("Triage")
+            tabTriage = New TabPage("Triage") With {.BackColor = ClinicalUi.PageBg, .UseVisualStyleBackColor = False, .Padding = New Padding(0)}
             innerNav.TabPages.Add(tabTriage)
             BuildTriageTab(tabTriage)
 
-            tabConsult = New TabPage("Consultation")
+            tabConsult = New TabPage("Consultation") With {.BackColor = ClinicalUi.PageBg, .UseVisualStyleBackColor = False, .Padding = New Padding(0)}
             innerNav.TabPages.Add(tabConsult)
             BuildConsultationTab(tabConsult)
 
-            Dim actionBar As New Panel With {.Dock = DockStyle.Bottom, .Height = 56, .BackColor = Color.White}
+            Dim actionBar As New Panel With {.Dock = DockStyle.Bottom, .Height = 62, .BackColor = Color.White}
+            ClinicalUi.SetDoubleBuffered(actionBar)
+            AddHandler actionBar.Paint,
+                Sub(s, e)
+                    Using pen As New Pen(ClinicalUi.CardBorder)
+                        e.Graphics.DrawLine(pen, 0, 0, actionBar.Width, 0)
+                    End Using
+                End Sub
             Me.Controls.Add(actionBar)
 
             ' Consultation can't be opened until triage has been saved.
@@ -106,66 +124,75 @@ Namespace Forms
                     End If
                 End Sub
 
-            Dim btnRequestLab As New Button With {.Text = "Request Lab", .Size = New Size(130, 36)}
-            UiTheme.StyleSecondaryButton(btnRequestLab)
+            Dim btnRequestLab As New Button With {.Text = "Request Lab", .Size = New Size(130, 38)}
+            ClinicalUi.StyleSecondary(btnRequestLab)
             AddHandler btnRequestLab.Click, AddressOf BtnRequestLab_Click
             actionBar.Controls.Add(btnRequestLab)
 
-            Dim btnCertificate As New Button With {.Text = "Medical Certificate", .Size = New Size(160, 36)}
-            UiTheme.StyleSecondaryButton(btnCertificate)
+            Dim btnCertificate As New Button With {.Text = "Medical Certificate", .Size = New Size(170, 38)}
+            ClinicalUi.StyleSecondary(btnCertificate)
             AddHandler btnCertificate.Click, AddressOf BtnMedicalCertificate_Click
             actionBar.Controls.Add(btnCertificate)
 
-            UiTheme.PinRowToRight(actionBar, 10, 0, 10, btnRequestLab, btnCertificate)
+            UiTheme.PinRowToRight(actionBar, 12, 20, 10, btnRequestLab, btnCertificate)
         End Sub
+
+        ''' <summary>White footer strip with a top divider, used under the triage and consultation pages.</summary>
+        Private Shared Function NewFooter() As Panel
+            Dim footer As New Panel With {.Dock = DockStyle.Bottom, .Height = 64, .BackColor = Color.White}
+            ClinicalUi.SetDoubleBuffered(footer)
+            AddHandler footer.Paint,
+                Sub(s, e)
+                    Using pen As New Pen(ClinicalUi.CardBorder)
+                        e.Graphics.DrawLine(pen, 0, 0, footer.Width, 0)
+                    End Using
+                End Sub
+            Return footer
+        End Function
 
         ' ---------------- Triage tab (Figure 23) ----------------
         Private Sub BuildTriageTab(tab As TabPage)
-            Dim p As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True, .Padding = New Padding(20)}
-            tab.Controls.Add(p)
+            Dim left As TableLayoutPanel = Nothing
+            Dim right As TableLayoutPanel = Nothing
+            Dim page = ClinicalUi.TwoColumnPage(left, right)
 
-            p.Controls.Add(New Label With {.Text = "Vital Signs", .Font = UiTheme.SubHeaderFont, .AutoSize = True, .Location = New Point(0, 0)})
-
-            txtTemp = LabeledBox(p, "Temperature (C) *", 0, 40)
-            txtBpSys = LabeledBox(p, "BP Systolic", 180, 40, 80)
-            txtBpDia = LabeledBox(p, "BP Diastolic", 270, 40, 80)
-            txtHr = LabeledBox(p, "Heart Rate (bpm)", 380, 40, 110)
-            txtRr = LabeledBox(p, "Respiratory Rate", 500, 40, 110)
-            txtSpo2 = LabeledBox(p, "O2 Saturation (%)", 620, 40, 110)
-
-            txtWeight = LabeledBox(p, "Weight (kg)", 0, 96, 120)
-            txtHeight = LabeledBox(p, "Height (cm)", 140, 96, 120)
+            ' Left column: one Vital Signs card (BP systolic/diastolic side by side, units inside the inputs, weight + height paired).
+            Dim vitals = ClinicalUi.AddCard(left, "Vital Signs")
+            Dim g = ClinicalUi.NewGrid(vitals, 2)
+            txtTemp = New TextBox() : ClinicalUi.AddField(g, "Temperature *", ClinicalUi.InputWrap(txtTemp, ChrW(176) & "C"))
+            txtBpSys = New TextBox() : txtBpDia = New TextBox()
+            ClinicalUi.AddBloodPressure(g, "BP Systolic", txtBpSys, "BP Diastolic", txtBpDia)
+            txtHr = New TextBox() : ClinicalUi.AddField(g, "Heart Rate", ClinicalUi.InputWrap(txtHr, "bpm"))
+            txtRr = New TextBox() : ClinicalUi.AddField(g, "Respiratory Rate", ClinicalUi.InputWrap(txtRr, "/min"))
+            txtWeight = New TextBox() : ClinicalUi.AddField(g, "Weight", ClinicalUi.InputWrap(txtWeight, "kg"))
+            txtHeight = New TextBox() : ClinicalUi.AddField(g, "Height", ClinicalUi.InputWrap(txtHeight, "cm"))
             AddHandler txtWeight.TextChanged, Sub() RecalculateBmi()
             AddHandler txtHeight.TextChanged, Sub() RecalculateBmi()
-            p.Controls.Add(New Label With {.Text = "BMI (auto)", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(280, 96)})
-            lblBmi = New Label With {.ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(280, 116)}
-            p.Controls.Add(lblBmi)
+            txtSpo2 = New TextBox() : ClinicalUi.AddField(g, "O2 Saturation", ClinicalUi.InputWrap(txtSpo2, "%"))
+            lblBmi = New Label() : ClinicalUi.AddField(g, "BMI (auto)", ClinicalUi.ReadOnlyWrap(lblBmi))
 
-            p.Controls.Add(New Label With {.Text = "Pain Scale (0-10)", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(420, 96)})
-            numPain = New NumericUpDown With {.Minimum = 0, .Maximum = 10, .Location = New Point(420, 116), .Width = 80}
-            p.Controls.Add(numPain)
+            ' Right column: stacked cards.
+            Dim appearanceCard = ClinicalUi.AddCard(right, "General Appearance")
+            txtGeneralAppearance = New TextBox With {.Multiline = True}
+            ClinicalUi.AddRow(appearanceCard, ClinicalUi.InputWrap(txtGeneralAppearance, Nothing, 96))
 
-            p.Controls.Add(New Label With {.Text = "Triage Classification", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 156)})
-            cboTriageClass = New ComboBox With {.Location = New Point(0, 176), .Width = 240, .DropDownStyle = ComboBoxStyle.DropDownList}
+            Dim classCard = ClinicalUi.AddCard(right, "Triage Classification", True)
+            cboTriageClass = New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDownList, .Font = ClinicalUi.InputFont}
             cboTriageClass.Items.AddRange({"Non-urgent", "Priority", "Emergency"})
-            p.Controls.Add(cboTriageClass)
+            ClinicalUi.AddRow(classCard, cboTriageClass)
 
-            p.Controls.Add(New Label With {.Text = "General Appearance", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 216)})
-            txtGeneralAppearance = New TextBox With {.Location = New Point(0, 236), .Width = 700, .Height = 60, .Multiline = True}
-            p.Controls.Add(txtGeneralAppearance)
-
-            Dim btnSaveTriage As New Button With {.Text = "Save Triage", .Size = New Size(150, 36), .Location = New Point(0, 312)}
-            UiTheme.StylePrimaryButton(btnSaveTriage)
+            ' Footer with the primary action on the right.
+            Dim footer = NewFooter()
+            Dim btnSaveTriage As New Button With {.Text = "Save Triage", .Size = New Size(150, 38)}
+            ClinicalUi.StylePrimary(btnSaveTriage)
             AddHandler btnSaveTriage.Click, AddressOf BtnSaveTriage_Click
-            p.Controls.Add(btnSaveTriage)
-        End Sub
+            footer.Controls.Add(btnSaveTriage)
+            UiTheme.PinToRight(btnSaveTriage, footer, 20, 13)
 
-        Private Function LabeledBox(container As Panel, label As String, x As Integer, y As Integer, Optional width As Integer = 150) As TextBox
-            container.Controls.Add(New Label With {.Text = label, .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(x, y)})
-            Dim tb As New TextBox With {.Location = New Point(x, y + 20), .Width = width}
-            container.Controls.Add(tb)
-            Return tb
-        End Function
+            tab.Controls.Add(footer)
+            tab.Controls.Add(page)
+            page.BringToFront()
+        End Sub
 
         Private Sub RecalculateBmi()
             Dim w, h As Double
@@ -174,66 +201,57 @@ Namespace Forms
                 Dim bmi = w / (heightM * heightM)
                 Dim category = If(bmi < 18.5, "Underweight", If(bmi < 25, "Normal", If(bmi < 30, "Overweight", "Obese")))
                 lblBmi.Text = $"{bmi:0.0} kg/m2 - {category}"
+                ' Colour-only cue: normal stays dark, out-of-range readings turn amber/red.
+                lblBmi.ForeColor = If(category = "Normal", ClinicalUi.TextMain, If(category = "Obese", ClinicalUi.DangerText, ClinicalUi.WarnText))
             Else
                 lblBmi.Text = ""
             End If
         End Sub
 
         ' ---------------- Consultation tab (Figures 24-29) ----------------
+        ''' <summary>
+        ''' One page of cards instead of six sub-tabs: left column = subjective + history + exam, right column =
+        ''' diagnoses, plan and prescriptions. Every field/grid is the same control as before.
+        ''' </summary>
         Private Sub BuildConsultationTab(tab As TabPage)
-            Dim consultTabs As New TabControl With {.Dock = DockStyle.Fill}
-            tab.Controls.Add(consultTabs)
+            Dim left As TableLayoutPanel = Nothing
+            Dim right As TableLayoutPanel = Nothing
+            Dim page = ClinicalUi.TwoColumnPage(left, right)
 
-            ' -- Chief Complaint --
-            Dim tCC As New TabPage("Chief Complaint")
-            consultTabs.TabPages.Add(tCC)
-            Dim pCC As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True, .Padding = New Padding(20)}
-            tCC.Controls.Add(pCC)
-            pCC.Controls.Add(New Label With {.Text = "Chief Complaint *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 0)})
-            txtChiefComplaint = New TextBox With {.Location = New Point(0, 20), .Width = 700, .Height = 50, .Multiline = True}
-            pCC.Controls.Add(txtChiefComplaint)
-            pCC.Controls.Add(New Label With {.Text = "History of Present Illness", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 84)})
-            txtHpi = New TextBox With {.Location = New Point(0, 104), .Width = 700, .Height = 100, .Multiline = True}
-            pCC.Controls.Add(txtHpi)
+            ' -- History / Subjective (Chief Complaint) --
+            Dim ccCard = ClinicalUi.AddCard(left, "History / Subjective", False, 1)
+            Dim gCC = ClinicalUi.NewGrid(ccCard, 1)
+            txtChiefComplaint = New TextBox With {.Multiline = True}
+            ClinicalUi.AddField(gCC, "Chief Complaint *", ClinicalUi.InputWrap(txtChiefComplaint, Nothing, 76))
+            txtHpi = New TextBox With {.Multiline = True}
+            ClinicalUi.AddField(gCC, "History of Present Illness", ClinicalUi.InputWrap(txtHpi, Nothing, 110))
 
             ' -- Medical History --
-            Dim tHist As New TabPage("Medical History")
-            consultTabs.TabPages.Add(tHist)
-            Dim pHist As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True, .Padding = New Padding(20)}
-            tHist.Controls.Add(pHist)
-            pHist.Controls.Add(New Label With {.Text = "Past Medical History", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 0)})
-            txtPastHistory = New TextBox With {.Location = New Point(0, 20), .Width = 340, .Height = 70, .Multiline = True}
-            pHist.Controls.Add(txtPastHistory)
-            pHist.Controls.Add(New Label With {.Text = "Family History", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(360, 0)})
-            txtFamilyHistory = New TextBox With {.Location = New Point(360, 20), .Width = 340, .Height = 70, .Multiline = True}
-            pHist.Controls.Add(txtFamilyHistory)
-            pHist.Controls.Add(New Label With {.Text = "Social History", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 104)})
-            txtSocialHistory = New TextBox With {.Location = New Point(0, 124), .Width = 340, .Height = 70, .Multiline = True}
-            pHist.Controls.Add(txtSocialHistory)
-            pHist.Controls.Add(New Label With {.Text = "Current Medications", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(360, 104)})
-            txtCurrentMeds = New TextBox With {.Location = New Point(360, 124), .Width = 340, .Height = 70, .Multiline = True}
-            pHist.Controls.Add(txtCurrentMeds)
+            Dim histCard = ClinicalUi.AddCard(left, "Medical History", False, 2)
+            Dim gHist = ClinicalUi.NewGrid(histCard, 2)
+            txtPastHistory = New TextBox With {.Multiline = True}
+            ClinicalUi.AddField(gHist, "Past Medical History", ClinicalUi.InputWrap(txtPastHistory, Nothing, 84))
+            txtFamilyHistory = New TextBox With {.Multiline = True}
+            ClinicalUi.AddField(gHist, "Family History", ClinicalUi.InputWrap(txtFamilyHistory, Nothing, 84))
+            txtSocialHistory = New TextBox With {.Multiline = True}
+            ClinicalUi.AddField(gHist, "Social History", ClinicalUi.InputWrap(txtSocialHistory, Nothing, 84))
+            txtCurrentMeds = New TextBox With {.Multiline = True}
+            ClinicalUi.AddField(gHist, "Current Medications", ClinicalUi.InputWrap(txtCurrentMeds, Nothing, 84))
 
-            ' -- Physical Exam --
-            Dim tExam As New TabPage("Physical Exam")
-            consultTabs.TabPages.Add(tExam)
-            Dim pExam As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True, .Padding = New Padding(20)}
-            tExam.Controls.Add(pExam)
-            txtPeGeneral = LabeledMultiline(pExam, "General", 0, 0)
-            txtPeHeent = LabeledMultiline(pExam, "HEENT", 360, 0)
-            txtPeCardio = LabeledMultiline(pExam, "Cardiovascular", 0, 110)
-            txtPeRespi = LabeledMultiline(pExam, "Respiratory", 360, 110)
-            txtPeAbdomen = LabeledMultiline(pExam, "Abdomen", 0, 220)
-            txtPeExtrem = LabeledMultiline(pExam, "Extremities", 360, 220)
-            txtPeNeuro = LabeledMultiline(pExam, "Neurological", 0, 330)
+            ' -- Physical Exam / Objective --
+            Dim examCard = ClinicalUi.AddCard(left, "Physical Exam / Objective", False, 3)
+            Dim gExam = ClinicalUi.NewGrid(examCard, 2)
+            txtPeGeneral = ExamBox(gExam, "General")
+            txtPeHeent = ExamBox(gExam, "HEENT")
+            txtPeCardio = ExamBox(gExam, "Cardiovascular")
+            txtPeRespi = ExamBox(gExam, "Respiratory")
+            txtPeAbdomen = ExamBox(gExam, "Abdomen")
+            txtPeExtrem = ExamBox(gExam, "Extremities")
+            txtPeNeuro = ExamBox(gExam, "Neurological")
 
             ' -- Assessment / Diagnoses (Figure 27) --
-            Dim tAssess As New TabPage("Assessment")
-            consultTabs.TabPages.Add(tAssess)
-            Dim pAssess As New Panel With {.Dock = DockStyle.Fill, .Padding = New Padding(20)}
-            tAssess.Controls.Add(pAssess)
-            pAssess.Controls.Add(New Label With {.Text = "Current Diagnoses", .Font = UiTheme.SubHeaderFont, .Dock = DockStyle.Top, .Height = 30})
-            gridDiagnoses = New DataGridView With {.Dock = DockStyle.Fill}
+            Dim diagCard = ClinicalUi.AddCard(right, "Current Diagnoses", False, 4)
+            gridDiagnoses = New DataGridView()
             UiTheme.StyleGrid(gridDiagnoses)
             gridDiagnoses.ReadOnly = False
             gridDiagnoses.AllowUserToAddRows = True
@@ -247,37 +265,26 @@ Namespace Forms
             colStat.Items.AddRange("Active", "Resolved")
             gridDiagnoses.Columns.Add(colStat)
             gridDiagnoses.Columns("diagnosis_desc").FillWeight = 200
-            Dim pnlAssessBottom As New Panel With {.Dock = DockStyle.Bottom, .Height = 44}
-            pAssess.Controls.Add(gridDiagnoses)
-            pAssess.Controls.Add(pnlAssessBottom)
+            ClinicalUi.StyleClinicalGrid(gridDiagnoses)
+            ClinicalUi.AddRow(diagCard, ClinicalUi.GridHost(gridDiagnoses, 220))
 
             ' -- Treatment Plan --
-            Dim tPlan As New TabPage("Treatment Plan")
-            consultTabs.TabPages.Add(tPlan)
-            Dim pPlan As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True, .Padding = New Padding(20)}
-            tPlan.Controls.Add(pPlan)
-            pPlan.Controls.Add(New Label With {.Text = "Treatment Plan", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 0)})
-            txtTreatmentPlan = New TextBox With {.Location = New Point(0, 20), .Width = 700, .Height = 100, .Multiline = True}
-            pPlan.Controls.Add(txtTreatmentPlan)
-
-            chkNoFollowUp = New CheckBox With {.Text = "No follow-up needed", .Location = New Point(0, 130), .AutoSize = True}
-            pPlan.Controls.Add(chkNoFollowUp)
-            pPlan.Controls.Add(New Label With {.Text = "Follow-up Date", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(0, 158)})
-            dtpFollowUp = New DateTimePicker With {.Location = New Point(0, 178), .Width = 200, .Format = DateTimePickerFormat.Short}
-            pPlan.Controls.Add(dtpFollowUp)
+            Dim planCard = ClinicalUi.AddCard(right, "Plan / Treatment", False, 5)
+            Dim gPlan = ClinicalUi.NewGrid(planCard, 2)
+            txtTreatmentPlan = New TextBox With {.Multiline = True}
+            ClinicalUi.AddField(gPlan, "Treatment Plan", ClinicalUi.InputWrap(txtTreatmentPlan, Nothing, 100), 2)
+            chkNoFollowUp = New CheckBox With {.Text = "No follow-up needed", .AutoSize = True, .Margin = New Padding(0, 0, 0, 12)}
+            gPlan.Controls.Add(chkNoFollowUp)
+            gPlan.SetColumnSpan(chkNoFollowUp, 2)
+            dtpFollowUp = New DateTimePicker With {.Format = DateTimePickerFormat.Short}
+            ClinicalUi.AddField(gPlan, "Follow-up Date", dtpFollowUp)
             AddHandler chkNoFollowUp.CheckedChanged, Sub() dtpFollowUp.Enabled = Not chkNoFollowUp.Checked
-
-            pPlan.Controls.Add(New Label With {.Text = "Follow-up Instructions", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(240, 158)})
-            txtFollowUpInstructions = New TextBox With {.Location = New Point(240, 178), .Width = 460, .Height = 60, .Multiline = True}
-            pPlan.Controls.Add(txtFollowUpInstructions)
+            txtFollowUpInstructions = New TextBox With {.Multiline = True}
+            ClinicalUi.AddField(gPlan, "Follow-up Instructions", ClinicalUi.InputWrap(txtFollowUpInstructions, Nothing, 76))
 
             ' -- Medications (Figure 29) --
-            Dim tMeds As New TabPage("Medications")
-            consultTabs.TabPages.Add(tMeds)
-            Dim pMeds As New Panel With {.Dock = DockStyle.Fill, .Padding = New Padding(20)}
-            tMeds.Controls.Add(pMeds)
-            pMeds.Controls.Add(New Label With {.Text = "Prescribed Medications", .Font = UiTheme.SubHeaderFont, .Dock = DockStyle.Top, .Height = 30})
-            gridMedications = New DataGridView With {.Dock = DockStyle.Fill}
+            Dim medCard = ClinicalUi.AddCard(right, "Prescribed Medications", False, 6)
+            gridMedications = New DataGridView()
             UiTheme.StyleGrid(gridMedications)
             gridMedications.ReadOnly = False
             gridMedications.AllowUserToAddRows = True
@@ -290,32 +297,44 @@ Namespace Forms
             gridMedications.Columns.Add("instructions", "Instructions")
             gridMedications.Columns.Add("status", "Status")
             gridMedications.Columns("status").ReadOnly = True
-            gridMedications.Columns("status").DefaultCellStyle.ForeColor = UiTheme.TextMuted
             Dim colRxId As New DataGridViewTextBoxColumn With {.Name = "prescription_id", .Visible = False}
             gridMedications.Columns.Add(colRxId)
             gridMedications.Columns("medicine_name").FillWeight = 160
             gridMedications.Columns("instructions").FillWeight = 200
+            ClinicalUi.StyleClinicalGrid(gridMedications)
+            gridMedications.Columns("status").DefaultCellStyle.ForeColor = ClinicalUi.TextSoft
             AddHandler gridMedications.CellBeginEdit, AddressOf GridMedications_CellBeginEdit
             AddHandler gridMedications.UserDeletingRow, AddressOf GridMedications_UserDeletingRow
-            pMeds.Controls.Add(gridMedications)
-            gridMedications.BringToFront()
+            ClinicalUi.AddRow(medCard, ClinicalUi.GridHost(gridMedications, 240))
 
-            ' Complete Encounter, docked under the inner consult tab control; enabled only once the consultation is finished.
-            Dim pnlSave As New Panel With {.Dock = DockStyle.Bottom, .Height = 50}
-            tab.Controls.Add(pnlSave)
-            tab.Controls.SetChildIndex(pnlSave, 0)
-            btnComplete = New Button With {.Text = "Complete Encounter", .Size = New Size(180, 36), .Location = New Point(0, 8), .Enabled = False}
-            UiTheme.StylePrimaryButton(btnComplete)
+            ' Complete Encounter, in a footer under the cards; enabled only once the consultation is finished.
+            Dim pnlSave = NewFooter()
+            btnComplete = New Button With {.Text = "Complete Encounter", .Size = New Size(190, 38), .Location = New Point(20, 13), .Enabled = False}
+            ClinicalUi.StylePrimary(btnComplete)
+            btnComplete.BackColor = DisabledGreen
+            AddHandler btnComplete.EnabledChanged, Sub() btnComplete.BackColor = If(btnComplete.Enabled, ClinicalUi.Green, DisabledGreen)
             AddHandler btnComplete.Click, AddressOf BtnCompleteEncounter_Click
             pnlSave.Controls.Add(btnComplete)
-            lblCompleteHint = New Label With {.ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(192, 18)}
+            lblCompleteHint = New Label With {.ForeColor = ClinicalUi.TextSoft, .AutoSize = True, .Location = New Point(224, 24)}
             pnlSave.Controls.Add(lblCompleteHint)
+
+            tab.Controls.Add(pnlSave)
+            tab.Controls.Add(page)
+            page.BringToFront()
 
             AddHandler txtChiefComplaint.TextChanged, Sub() UpdateCompleteButton()
             AddHandler txtTreatmentPlan.TextChanged, Sub() UpdateCompleteButton()
             AddHandler gridDiagnoses.CellValueChanged, Sub() UpdateCompleteButton()
             AddHandler gridDiagnoses.RowsRemoved, Sub() UpdateCompleteButton()
         End Sub
+
+        Private Shared ReadOnly DisabledGreen As Color = Color.FromArgb(176, 196, 184)
+
+        Private Function ExamBox(grid As TableLayoutPanel, caption As String) As TextBox
+            Dim tb As New TextBox With {.Multiline = True}
+            ClinicalUi.AddField(grid, caption, ClinicalUi.InputWrap(tb, Nothing, 76))
+            Return tb
+        End Function
 
         ''' <summary>
         ''' The consultation is finished when it has a chief complaint, at least one diagnosis
@@ -344,13 +363,6 @@ Namespace Forms
                 lblCompleteHint.Text = ""
             End If
         End Sub
-
-        Private Function LabeledMultiline(container As Panel, label As String, x As Integer, y As Integer) As TextBox
-            container.Controls.Add(New Label With {.Text = label, .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(x, y)})
-            Dim tb As New TextBox With {.Location = New Point(x, y + 20), .Width = 340, .Height = 80, .Multiline = True}
-            container.Controls.Add(tb)
-            Return tb
-        End Function
 
         ' ---------------- Data load/save ----------------
 
@@ -390,7 +402,6 @@ Namespace Forms
                 If Not IsDBNull(r("triage_spo2")) Then txtSpo2.Text = r("triage_spo2").ToString()
                 If Not IsDBNull(r("triage_weight_kg")) Then txtWeight.Text = r("triage_weight_kg").ToString()
                 If Not IsDBNull(r("triage_height_cm")) Then txtHeight.Text = r("triage_height_cm").ToString()
-                If Not IsDBNull(r("triage_pain_scale")) Then numPain.Value = Convert.ToInt32(r("triage_pain_scale"))
                 If Not IsDBNull(r("triage_general_appearance")) Then txtGeneralAppearance.Text = r("triage_general_appearance").ToString()
                 If Not IsDBNull(r("triage_classification")) Then cboTriageClass.SelectedItem = r("triage_classification").ToString()
                 If Not IsDBNull(r("chief_complaint")) Then txtChiefComplaint.Text = r("chief_complaint").ToString()
@@ -482,14 +493,14 @@ Namespace Forms
                             triage_temp_c = @Temp, triage_bp_systolic = @BpSys, triage_bp_diastolic = @BpDia,
                             triage_heart_rate = @Hr, triage_respiratory_rate = @Rr, triage_spo2 = @Spo2,
                             triage_weight_kg = @Weight, triage_height_cm = @Height, triage_bmi = @Bmi,
-                            triage_pain_scale = @Pain, triage_general_appearance = @General, triage_classification = @Class,
+                            triage_general_appearance = @General, triage_classification = @Class,
                             triage_by = @TriageBy, triage_at = NOW(), status = IF(status = 'Open', 'In Progress', status), updated_at = NOW()
                          WHERE encounter_id = @Id",
                         New With {
                             .Temp = ParseOrNull(txtTemp.Text), .BpSys = ParseIntOrNull(txtBpSys.Text), .BpDia = ParseIntOrNull(txtBpDia.Text),
                             .Hr = ParseIntOrNull(txtHr.Text), .Rr = ParseIntOrNull(txtRr.Text), .Spo2 = ParseOrNull(txtSpo2.Text),
                             .Weight = ParseOrNull(txtWeight.Text), .Height = ParseOrNull(txtHeight.Text), .Bmi = ParseBmiOrNull(),
-                            .Pain = CInt(numPain.Value), .General = EmptyToNull(txtGeneralAppearance.Text), .Class = EmptyToNull(cboTriageClass.Text),
+                            .General = EmptyToNull(txtGeneralAppearance.Text), .Class = EmptyToNull(cboTriageClass.Text),
                             .TriageBy = Session.Current.UserId, .Id = encounterId
                         })
 

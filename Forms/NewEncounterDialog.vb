@@ -16,6 +16,29 @@ Namespace Forms
         Private txtChiefComplaint, txtNotes As TextBox
         Private lblError As Label
 
+        Private Shared ReadOnly Green As Color = ColorTranslator.FromHtml("#1F5F3F")
+        Private Shared ReadOnly GreenHover As Color = ColorTranslator.FromHtml("#174A31")
+        Private Shared ReadOnly PageBg As Color = ColorTranslator.FromHtml("#F3F7F4")
+        Private Shared ReadOnly CardBorder As Color = ColorTranslator.FromHtml("#E3E8E5")
+        Private Shared ReadOnly InputBorder As Color = ColorTranslator.FromHtml("#D9DEDB")
+        Private Shared ReadOnly TextMain As Color = ColorTranslator.FromHtml("#1A1F1C")
+        Private Shared ReadOnly TextSoft As Color = ColorTranslator.FromHtml("#6B7280")
+        Private Shared ReadOnly RequiredRed As Color = ColorTranslator.FromHtml("#DC2626")
+
+        Private Shared ReadOnly LabelFont As New Font("Segoe UI Semibold", 8.75F)
+        Private Shared ReadOnly InputFont As New Font("Segoe UI", 10.5F)
+
+        ''' <summary>Label above a field; a trailing " *" becomes a separate red asterisk.</summary>
+        Private Sub AddFieldLabel(parent As Control, text As String, x As Integer, y As Integer)
+            Dim required = text.EndsWith("*")
+            Dim caption = text.TrimEnd("*"c).TrimEnd()
+            parent.Controls.Add(New Label With {.Text = caption, .Font = LabelFont, .ForeColor = TextMain, .AutoSize = True, .Location = New Point(x, y)})
+            If required Then
+                Dim w = TextRenderer.MeasureText(caption, LabelFont, New Size(Integer.MaxValue, Integer.MaxValue), TextFormatFlags.NoPadding).Width
+                parent.Controls.Add(New Label With {.Text = "*", .Font = LabelFont, .ForeColor = RequiredRed, .AutoSize = True, .Location = New Point(x + w + 2, y)})
+            End If
+        End Sub
+
         Public Sub New(patientId As Integer, patientDisplayName As String)
             Me.patientId = patientId
             Me.Text = "New Encounter"
@@ -24,61 +47,91 @@ Namespace Forms
             Me.FormBorderStyle = FormBorderStyle.FixedDialog
             Me.MaximizeBox = False : Me.MinimizeBox = False
             Me.Font = UiTheme.BaseFont
-            Me.Padding = New Padding(20)
+            Me.BackColor = PageBg
 
-            Dim lblTitle As New Label With {.Text = "Create a New Patient Encounter", .Font = UiTheme.SubHeaderFont, .AutoSize = True, .Location = New Point(20, 16)}
-            Me.Controls.Add(lblTitle)
-            Me.Controls.Add(New Label With {.Text = patientDisplayName, .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(20, 44)})
+            ' White bordered card holding the whole form (2-column grid: x = 24 and x = 271, 233px wide, 14px gap).
+            Dim card As New Panel With {.BackColor = Color.White, .Location = New Point(16, 16), .Width = 528}
+            AddHandler card.Paint,
+                Sub(s, e)
+                    Using pen As New Pen(CardBorder)
+                        e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1)
+                    End Using
+                End Sub
+            Me.Controls.Add(card)
+            Const col1 As Integer = 24
+            Const col2 As Integer = 271
+            Const colW As Integer = 233
+            Const fullW As Integer = 480
 
-            Dim y = 84
-            Me.Controls.Add(New Label With {.Text = "Visit Type *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, y)})
-            cboVisitType = New ComboBox With {.Location = New Point(20, y + 20), .Width = 240, .DropDownStyle = ComboBoxStyle.DropDownList}
+            card.Controls.Add(New Label With {.Text = "Create a New Patient Encounter", .Font = New Font("Segoe UI Semibold", 11.5F), .ForeColor = TextMain, .AutoSize = True, .Location = New Point(col1, 20)})
+            card.Controls.Add(New Label With {.Text = patientDisplayName, .ForeColor = TextSoft, .AutoSize = True, .Location = New Point(col1, 50)})
+
+            Dim y = 90
+            AddFieldLabel(card, "Visit Type *", col1, y)
+            cboVisitType = New ComboBox With {.Location = New Point(col1, y + 22), .Width = colW, .Font = InputFont, .DropDownStyle = ComboBoxStyle.DropDownList}
             cboVisitType.Items.AddRange({"Outpatient Consultation", "Follow-up", "Immunization", "Prenatal/Postpartum", "Emergency", "Referral Follow-up"})
             cboVisitType.SelectedIndex = 0
-            Me.Controls.Add(cboVisitType)
+            card.Controls.Add(cboVisitType)
 
-            Me.Controls.Add(New Label With {.Text = "Priority Level", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(280, y)})
-            cboPriority = New ComboBox With {.Location = New Point(280, y + 20), .Width = 220, .DropDownStyle = ComboBoxStyle.DropDownList}
-            cboPriority.Items.AddRange({"Routine", "Urgent", "Emergency"})
-            cboPriority.SelectedIndex = 0
-            Me.Controls.Add(cboPriority)
-
-            y += 60
-            Me.Controls.Add(New Label With {.Text = "Referral Source", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, y)})
-            cboReferralSource = New ComboBox With {.Location = New Point(20, y + 20), .Width = 240, .DropDownStyle = ComboBoxStyle.DropDownList}
+            y += 74
+            AddFieldLabel(card, "Referral Source", col1, y)
+            cboReferralSource = New ComboBox With {.Location = New Point(col1, y + 22), .Width = colW, .Font = InputFont, .DropDownStyle = ComboBoxStyle.DropDownList}
             cboReferralSource.Items.AddRange({"Walk-in", "Referred", "Scheduled"})
             cboReferralSource.SelectedIndex = 0
-            Me.Controls.Add(cboReferralSource)
+            card.Controls.Add(cboReferralSource)
 
-            y += 60
-            Me.Controls.Add(New Label With {.Text = "Chief Complaint / Reason for Visit *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, y)})
-            txtChiefComplaint = New TextBox With {.Location = New Point(20, y + 20), .Width = 480, .Height = 60, .Multiline = True}
-            Me.Controls.Add(txtChiefComplaint)
+            AddFieldLabel(card, "Priority Level", col2, y)
+            cboPriority = New ComboBox With {.Location = New Point(col2, y + 22), .Width = colW, .Font = InputFont, .DropDownStyle = ComboBoxStyle.DropDownList}
+            cboPriority.Items.AddRange({"Routine", "Urgent", "Emergency"})
+            cboPriority.SelectedIndex = 0
+            card.Controls.Add(cboPriority)
 
-            y += 100
-            Me.Controls.Add(New Label With {.Text = "Additional Notes", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, y)})
-            txtNotes = New TextBox With {.Location = New Point(20, y + 20), .Width = 480, .Height = 50, .Multiline = True}
-            Me.Controls.Add(txtNotes)
+            y += 74
+            AddFieldLabel(card, "Chief Complaint / Reason for Visit *", col1, y)
+            txtChiefComplaint = New TextBox With {.Location = New Point(col1, y + 22), .Width = fullW, .Height = 64, .Multiline = True, .Font = InputFont, .BorderStyle = BorderStyle.FixedSingle, .ScrollBars = ScrollBars.Vertical}
+            card.Controls.Add(txtChiefComplaint)
 
-            y += 82
-            lblError = New Label With {.ForeColor = UiTheme.DangerRed, .AutoSize = True, .MaximumSize = New Size(480, 0), .Location = New Point(20, y)}
-            Me.Controls.Add(lblError)
+            y += 104
+            AddFieldLabel(card, "Additional Notes", col1, y)
+            txtNotes = New TextBox With {.Location = New Point(col1, y + 22), .Width = fullW, .Height = 52, .Multiline = True, .Font = InputFont, .BorderStyle = BorderStyle.FixedSingle, .ScrollBars = ScrollBars.Vertical}
+            card.Controls.Add(txtNotes)
 
-            Dim btnCancel As New Button With {.Text = "Cancel", .Size = New Size(100, 36), .Location = New Point(300, y + 30)}
-            UiTheme.StyleSecondaryButton(btnCancel)
+            y += 92
+            lblError = New Label With {.ForeColor = RequiredRed, .AutoSize = True, .MaximumSize = New Size(fullW, 0), .Location = New Point(col1, y)}
+            card.Controls.Add(lblError)
+
+            ' Footer: divider, then Cancel (left, small outline) and the primary action (right).
+            y += 36
+            card.Controls.Add(New Panel With {.Location = New Point(col1, y), .Size = New Size(fullW, 1), .BackColor = CardBorder})
+            y += 18
+
+            Dim btnCancel As New Button With {.Text = "Cancel", .Size = New Size(84, 30), .Location = New Point(col1, y + 3)}
+            btnCancel.FlatStyle = FlatStyle.Flat
+            btnCancel.BackColor = Color.White
+            btnCancel.ForeColor = TextSoft
+            btnCancel.Font = New Font("Segoe UI", 9.0F)
+            btnCancel.UseVisualStyleBackColor = False
+            btnCancel.FlatAppearance.BorderColor = InputBorder
+            btnCancel.FlatAppearance.BorderSize = 1
+            btnCancel.FlatAppearance.MouseOverBackColor = PageBg
             AddHandler btnCancel.Click, Sub() Me.DialogResult = DialogResult.Cancel
-            Me.Controls.Add(btnCancel)
+            card.Controls.Add(btnCancel)
 
-            Dim btnStart As New Button With {.Text = "Save && Start Triage ->", .Size = New Size(200, 36), .Location = New Point(300, y + 30)}
-            btnStart.Location = New Point(300, y + 30)
-            UiTheme.StylePrimaryButton(btnStart)
+            Dim btnStart As New Button With {.Text = "Save && Start Triage ->", .Size = New Size(200, 36), .Location = New Point(col1 + fullW - 200, y)}
+            btnStart.FlatStyle = FlatStyle.Flat
+            btnStart.BackColor = Green
+            btnStart.ForeColor = Color.White
+            btnStart.Font = New Font("Segoe UI Semibold", 10.0F)
+            btnStart.UseVisualStyleBackColor = False
+            btnStart.FlatAppearance.BorderSize = 0
+            btnStart.FlatAppearance.MouseOverBackColor = GreenHover
+            btnStart.FlatAppearance.MouseDownBackColor = GreenHover
             AddHandler btnStart.Click, AddressOf BtnStart_Click
-            Me.Controls.Add(btnStart)
+            card.Controls.Add(btnStart)
 
-            ' Buttons landed at y+30+36=452 against a hardcoded 480 window height, which nets out
-            ' to only ~35px of client area below them once the title bar/borders are subtracted --
-            ' in practice they rendered clipped at the bottom edge. Size to the content actually built.
-            Me.ClientSize = New Size(Me.ClientSize.Width, y + 30 + 36 + 24)
+            ' Size the card and window to the content actually built (the old fixed height clipped the buttons).
+            card.Height = y + 36 + 24
+            Me.ClientSize = New Size(560, card.Bottom + 16)
             UiTheme.GuardUnsavedClose(Me)
         End Sub
 

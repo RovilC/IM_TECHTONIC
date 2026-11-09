@@ -38,46 +38,58 @@ Namespace Forms
             Me.Font = UiTheme.BaseFont
             Me.ClientSize = New Size(520, 522)
 
-            Me.Controls.Add(New Label With {.Text = testName, .Font = UiTheme.SubHeaderFont, .AutoSize = True, .Location = New Point(20, 16)})
-            Me.Controls.Add(New Label With {.Text = patientName, .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(20, 44)})
+            Dim card = ClinicalUi.NewDialogCard(Me, 488)
+            Const x As Integer = 24
+            Const w As Integer = 440
 
-            Me.Controls.Add(New Label With {.Text = "Result From *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, 78)})
-            Dim radios As New Panel With {.Location = New Point(20, 98), .Size = New Size(480, 26)}
-            rbRhu = New RadioButton With {.Text = SourceRhu, .AutoSize = True, .Location = New Point(0, 2)}
-            rbExternal = New RadioButton With {.Text = SourceExternal, .AutoSize = True, .Location = New Point(160, 2)}
+            card.Controls.Add(New Label With {.Text = testName, .Font = New Font("Segoe UI Semibold", 11.5F), .ForeColor = ClinicalUi.TextMain, .AutoSize = True, .UseMnemonic = False, .Location = New Point(x, 20)})
+            card.Controls.Add(New Label With {.Text = patientName, .ForeColor = ClinicalUi.TextSoft, .AutoSize = True, .UseMnemonic = False, .Location = New Point(x, 50)})
+
+            ClinicalUi.AddLabelAt(card, "Result From *", x, 90)
+            Dim radios As New Panel With {.Location = New Point(x, 112), .Size = New Size(w, 28), .BackColor = Color.White}
+            rbRhu = New RadioButton With {.Text = SourceRhu, .AutoSize = True, .Location = New Point(0, 3)}
+            rbExternal = New RadioButton With {.Text = SourceExternal, .AutoSize = True, .Location = New Point(170, 3)}
             radios.Controls.AddRange({rbRhu, rbExternal})
-            Me.Controls.Add(radios)
+            card.Controls.Add(radios)
             AddHandler rbRhu.CheckedChanged, Sub() UpdateSourceFields()
             AddHandler rbExternal.CheckedChanged, Sub() UpdateSourceFields()
 
-            lblLocked = New Label With {.ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(130, 78)}
-            Me.Controls.Add(lblLocked)
+            lblLocked = New Label With {.ForeColor = ClinicalUi.TextSoft, .AutoSize = True, .Location = New Point(x + 100, 91)}
+            card.Controls.Add(lblLocked)
 
-            Me.Controls.Add(New Label With {.Text = "Clinic / Laboratory Name *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, 134)})
-            txtClinic = New TextBox With {.Location = New Point(20, 154), .Width = 480}
-            Me.Controls.Add(txtClinic)
+            ClinicalUi.AddLabelAt(card, "Clinic / Laboratory Name *", x, 154)
+            txtClinic = New TextBox()
+            ClinicalUi.PlaceInput(card, txtClinic, x, 176, w)
 
-            Me.Controls.Add(New Label With {.Text = "Doctor / Pathologist *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, 190)})
-            txtDoctor = New TextBox With {.Location = New Point(20, 210), .Width = 480, .PlaceholderText = "e.g. Dr. Juan Dela Cruz, MD, FPSP"}
-            Me.Controls.Add(txtDoctor)
+            ClinicalUi.AddLabelAt(card, "Doctor / Pathologist *", x, 230)
+            txtDoctor = New TextBox With {.PlaceholderText = "e.g. Dr. Juan Dela Cruz, MD, FPSP"}
+            ClinicalUi.PlaceInput(card, txtDoctor, x, 252, w)
 
-            Me.Controls.Add(New Label With {.Text = "Result / Findings *", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, 246)})
-            txtResult = New TextBox With {.Location = New Point(20, 266), .Width = 480, .Height = 160, .Multiline = True, .ScrollBars = ScrollBars.Vertical}
-            Me.Controls.Add(txtResult)
+            ClinicalUi.AddLabelAt(card, "Result / Findings *", x, 306)
+            txtResult = New TextBox With {.Multiline = True}
+            ClinicalUi.PlaceInput(card, txtResult, x, 328, w, 130)
+            txtResult.ScrollBars = ScrollBars.Vertical   ' long results still need to scroll
 
             ' No status choice: saving a result releases it.
-            lblError = New Label With {.ForeColor = UiTheme.DangerRed, .AutoSize = True, .Location = New Point(20, 436), .MaximumSize = New Size(480, 0)}
-            Me.Controls.Add(lblError)
+            lblError = New Label With {.ForeColor = ClinicalUi.DangerText, .AutoSize = True, .Location = New Point(x, 470), .MaximumSize = New Size(w, 0)}
+            card.Controls.Add(lblError)
 
-            btnCancel = New Button With {.Text = "Cancel", .Size = New Size(100, 36), .Location = New Point(240, 470)}
-            UiTheme.StyleSecondaryButton(btnCancel)
+            ' Footer: divider, Cancel on the left, the primary action on the right.
+            card.Controls.Add(New Panel With {.Location = New Point(x, 512), .Size = New Size(w, 1), .BackColor = ClinicalUi.CardBorder})
+
+            btnCancel = New Button With {.Text = "Cancel", .Location = New Point(x, 534)}
+            ClinicalUi.StyleCancel(btnCancel)
             AddHandler btnCancel.Click, Sub() Me.DialogResult = DialogResult.Cancel
-            Me.Controls.Add(btnCancel)
+            card.Controls.Add(btnCancel)
 
-            btnSave = New Button With {.Text = "Release Result", .Size = New Size(150, 36), .Location = New Point(350, 470)}
-            UiTheme.StylePrimaryButton(btnSave)
+            btnSave = New Button With {.Text = "Release Result", .Size = New Size(170, 38)}
+            ClinicalUi.StylePrimary(btnSave)
+            btnSave.Location = New Point(x + w - 170, 530)
             AddHandler btnSave.Click, AddressOf BtnSave_Click
-            Me.Controls.Add(btnSave)
+            card.Controls.Add(btnSave)
+
+            card.Height = 530 + 38 + 22
+            Me.ClientSize = New Size(520, card.Bottom + 16)
 
             LoadExisting()
             UiTheme.GuardUnsavedClose(Me)
@@ -125,7 +137,7 @@ Namespace Forms
                     lblLocked.Text = ""
                     btnSave.Visible = False
                     btnCancel.Text = "Close"
-                    btnCancel.Location = New Point(400, 470)
+                    btnCancel.Location = New Point(btnSave.Right - btnCancel.Width, btnCancel.Top)   ' Close takes the primary button's spot
                     Dim releasedAt = If(IsDBNull(r("result_date")), "", " on " & Convert.ToDateTime(r("result_date")).ToString("MMM d, yyyy h:mm tt"))
                     Dim releasedBy = If(s("released_by") <> "", " by " & s("released_by"), "")
                     lblError.ForeColor = UiTheme.TextMuted

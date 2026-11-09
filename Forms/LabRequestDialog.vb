@@ -32,58 +32,78 @@ Namespace Forms
             Me.MaximizeBox = False : Me.MinimizeBox = False
             Me.Font = UiTheme.BaseFont
 
-            Me.Controls.Add(New Label With {.Text = "Laboratory Request", .Font = UiTheme.SubHeaderFont, .AutoSize = True, .Location = New Point(20, 16)})
-            Me.Controls.Add(New Label With {.Text = patientDisplayName, .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(20, 44)})
+            Dim card = ClinicalUi.NewDialogCard(Me, 612)
+            Const x As Integer = 24
+            Const w As Integer = 564
+            Const colW As Integer = 275
 
-            Me.Controls.Add(New Label With {.Text = "Priority Level", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, 78)})
-            cboPriority = New ComboBox With {.Location = New Point(20, 98), .Width = 200, .DropDownStyle = ComboBoxStyle.DropDownList}
+            card.Controls.Add(New Label With {.Text = "Laboratory Request", .Font = New Font("Segoe UI Semibold", 11.5F), .ForeColor = ClinicalUi.TextMain, .AutoSize = True, .Location = New Point(x, 20)})
+            card.Controls.Add(New Label With {.Text = patientDisplayName, .ForeColor = ClinicalUi.TextSoft, .AutoSize = True, .UseMnemonic = False, .Location = New Point(x, 50)})
+
+            ClinicalUi.AddLabelAt(card, "Priority Level", x, 90)
+            cboPriority = New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDownList}
             cboPriority.Items.AddRange(LabTestCatalog.PriorityLevels)
             cboPriority.SelectedIndex = 0
-            Me.Controls.Add(cboPriority)
+            ClinicalUi.PlaceCombo(card, cboPriority, x, 112, colW)
 
-            Me.Controls.Add(New Label With {.Text = "Specimen Type", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(260, 78)})
-            cboSpecimen = New ComboBox With {.Location = New Point(260, 98), .Width = 200, .DropDownStyle = ComboBoxStyle.DropDownList}
+            ClinicalUi.AddLabelAt(card, "Specimen Type", x + colW + 14, 90)
+            cboSpecimen = New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDownList}
             cboSpecimen.Items.AddRange(LabTestCatalog.SpecimenTypes)
             cboSpecimen.SelectedIndex = 0
-            Me.Controls.Add(cboSpecimen)
+            ClinicalUi.PlaceCombo(card, cboSpecimen, x + colW + 14, 112, colW)
 
-            Me.Controls.Add(New Label With {.Text = "Select Laboratory Tests", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, 138)})
-            lblSelectedCount = New Label With {.Text = "0 selected", .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(220, 140)}
-            Me.Controls.Add(lblSelectedCount)
+            ClinicalUi.AddLabelAt(card, "Select Laboratory Tests", x, 166)
+            lblSelectedCount = New Label With {.Text = "0 selected", .ForeColor = ClinicalUi.TextSoft, .AutoSize = True, .Location = New Point(x + 200, 166)}
+            card.Controls.Add(lblSelectedCount)
 
-            Dim testsPanel As New Panel With {.Location = New Point(20, 162), .Size = New Size(560, 300), .AutoScroll = True, .BorderStyle = BorderStyle.FixedSingle}
-            Me.Controls.Add(testsPanel)
+            ' Bordered host for the scrolling test list (categories + checkboxes are unchanged).
+            Dim testsHost As New Panel With {.Location = New Point(x, 190), .Size = New Size(w, 250), .BackColor = Color.White, .Padding = New Padding(1)}
+            AddHandler testsHost.Paint, Sub(s, e)
+                                            Using pen As New Pen(ClinicalUi.InputBorder)
+                                                e.Graphics.DrawRectangle(pen, 0, 0, testsHost.Width - 1, testsHost.Height - 1)
+                                            End Using
+                                        End Sub
+            card.Controls.Add(testsHost)
+            Dim testsPanel As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True, .BackColor = Color.White}
+            testsHost.Controls.Add(testsPanel)
 
             Dim y As Integer = 8
             For Each cat In LabTestCatalog.Categories
-                testsPanel.Controls.Add(New Label With {.Text = cat.Category, .Font = UiTheme.BoldFont, .ForeColor = UiTheme.PrimaryGreen, .AutoSize = True, .Location = New Point(8, y)})
-                y += 22
+                testsPanel.Controls.Add(New Label With {.Text = cat.Category, .Font = New Font("Segoe UI Semibold", 9.5F), .ForeColor = ClinicalUi.Green, .AutoSize = True, .UseMnemonic = False, .Location = New Point(8, y)})
+                y += 24
                 For Each testName In cat.Tests
-                    Dim chk As New CheckBox With {.Text = testName, .Tag = cat.Category, .AutoSize = True, .Location = New Point(20, y)}
+                    Dim chk As New CheckBox With {.Text = testName, .Tag = cat.Category, .AutoSize = True, .UseMnemonic = False, .ForeColor = ClinicalUi.TextMain, .Location = New Point(22, y)}
                     AddHandler chk.CheckedChanged, Sub() UpdateSelectedCount()
                     testsPanel.Controls.Add(chk)
                     checkBoxes.Add(chk)
-                    y += 22
+                    y += 24
                 Next
                 y += 8
             Next
 
-            Me.Controls.Add(New Label With {.Text = "Clinical Notes", .Font = UiTheme.BoldFont, .AutoSize = True, .Location = New Point(20, 478)})
-            txtNotes = New TextBox With {.Location = New Point(20, 498), .Width = 560, .Height = 50, .Multiline = True}
-            Me.Controls.Add(txtNotes)
+            ClinicalUi.AddLabelAt(card, "Clinical Notes", x, 458)
+            txtNotes = New TextBox With {.Multiline = True}
+            ClinicalUi.PlaceInput(card, txtNotes, x, 480, w, 72)
 
-            lblError = New Label With {.ForeColor = UiTheme.DangerRed, .AutoSize = True, .MaximumSize = New Size(400, 0), .Location = New Point(20, 558)}
-            Me.Controls.Add(lblError)
+            lblError = New Label With {.ForeColor = ClinicalUi.DangerText, .AutoSize = True, .MaximumSize = New Size(w, 0), .Location = New Point(x, 562)}
+            card.Controls.Add(lblError)
 
-            Dim btnCancel As New Button With {.Text = "Cancel", .Size = New Size(100, 36), .Location = New Point(370, 594)}
-            UiTheme.StyleSecondaryButton(btnCancel)
+            ' Footer: divider, Cancel on the left, the primary action on the right.
+            card.Controls.Add(New Panel With {.Location = New Point(x, 602), .Size = New Size(w, 1), .BackColor = ClinicalUi.CardBorder})
+
+            Dim btnCancel As New Button With {.Text = "Cancel", .Location = New Point(x, 624)}
+            ClinicalUi.StyleCancel(btnCancel)
             AddHandler btnCancel.Click, Sub() Me.DialogResult = DialogResult.Cancel
-            Me.Controls.Add(btnCancel)
+            card.Controls.Add(btnCancel)
 
-            Dim btnSubmit As New Button With {.Text = "Submit Request", .Size = New Size(150, 36), .Location = New Point(480, 594)}
-            UiTheme.StylePrimaryButton(btnSubmit)
+            Dim btnSubmit As New Button With {.Text = "Submit Request", .Size = New Size(160, 38)}
+            ClinicalUi.StylePrimary(btnSubmit)
+            btnSubmit.Location = New Point(x + w - 160, 620)
             AddHandler btnSubmit.Click, AddressOf BtnSubmit_Click
-            Me.Controls.Add(btnSubmit)
+            card.Controls.Add(btnSubmit)
+
+            card.Height = 620 + 38 + 22
+            Me.ClientSize = New Size(644, card.Bottom + 16)
             UiTheme.GuardUnsavedClose(Me)
         End Sub
 

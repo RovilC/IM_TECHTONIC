@@ -81,8 +81,11 @@ Namespace Forms
             ' resizing them to the viewport, so make the panel scrollable: it fits as-is
             ' on a wide/maximized window, and gains scrollbars instead of clipping content
             ' on a smaller one.
+            ' Visual restyle: every report is shown as cards on a mint background (Audit Logs has its own card layout).
+            If lstReports.SelectedIndex <> AuditLogsReportIndex Then ReportsTheme.ApplyReport(panel)
             panel.AutoScroll = True
             panel.Dock = DockStyle.Fill
+            pnlContent.BackColor = RolesPermissionsTheme.Background
             pnlContent.Controls.Add(panel)
         End Sub
 

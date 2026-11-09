@@ -19,35 +19,65 @@ Namespace Forms
         End Sub
 
         Private Sub InitializeComponent()
-            Me.BackColor = Color.White
+            ' Same look as the Patient Profile / Pharmacy pages: mint background, white header card with a green top
+            ' bar holding the filters, then a white content card with the (unchanged) table.
+            Me.BackColor = ClinicalUi.PageBg
             Me.Font = UiTheme.BaseFont
+            Me.Padding = New Padding(20, 16, 20, 16)
 
-            Dim toolbar As New Panel With {.Dock = DockStyle.Top, .Height = 50}
-            Me.Controls.Add(toolbar)
+            ' Dock order: later-added Top controls sit higher -> gap spacer first, then the header card.
+            Me.Controls.Add(New Panel With {.Dock = DockStyle.Top, .Height = 14})
 
-            txtSearch = New TextBox With {.Location = New Point(0, 10), .Width = 280, .PlaceholderText = "Search patient or test name..."}
+            Dim header As New Panel With {.Dock = DockStyle.Top, .Height = 80, .BackColor = Color.White}
+            ClinicalUi.SetDoubleBuffered(header)
+            AddHandler header.Paint,
+                Sub(s, e)
+                    Using pen As New Pen(ClinicalUi.CardBorder)
+                        e.Graphics.DrawRectangle(pen, 0, 0, header.Width - 1, header.Height - 1)
+                    End Using
+                    Using bar As New SolidBrush(ClinicalUi.Green)
+                        e.Graphics.FillRectangle(bar, 0, 0, header.Width, 6)
+                    End Using
+                End Sub
+            Me.Controls.Add(header)
+
+            txtSearch = New TextBox With {.PlaceholderText = "Search patient or test name..."}
             UiTheme.AttachDebouncedSearch(txtSearch, AddressOf LoadData)
-            toolbar.Controls.Add(txtSearch)
+            Dim searchBox = ClinicalUi.InputWrap(txtSearch, Nothing, 38)
+            searchBox.Dock = DockStyle.None
+            searchBox.Location = New Point(24, 26)
+            searchBox.Size = New Size(320, 38)
+            header.Controls.Add(searchBox)
 
-            cboStatus = New ComboBox With {.Location = New Point(290, 10), .Width = 160, .DropDownStyle = ComboBoxStyle.DropDownList}
+            cboStatus = New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDownList, .Font = ClinicalUi.InputFont}
             cboStatus.Items.AddRange({"All Status", "Pending", "Referred", "Released"})
             cboStatus.SelectedIndex = 0
             AddHandler cboStatus.SelectedIndexChanged, Sub() LoadData()
-            toolbar.Controls.Add(cboStatus)
+            cboStatus.Location = New Point(358, 28)
+            cboStatus.Width = 180
+            header.Controls.Add(cboStatus)
 
-            Dim lblHint As New Label With {.Text = "Double-click a Pending or Referred request to enter and release its result, or a Released one to view it (read-only).", .ForeColor = UiTheme.TextMuted, .AutoSize = True, .Location = New Point(0, 44)}
-            Dim hintPanel As New Panel With {.Dock = DockStyle.Top, .Height = 22}
-            hintPanel.Controls.Add(lblHint)
-            Me.Controls.Add(hintPanel)
+            ' Content card: hint on top, the table, record count underneath.
+            Dim card As New Panel With {.Dock = DockStyle.Fill}
+            RolesPermissionsTheme.MakeCard(card)
+            card.Padding = New Padding(14)
+            Me.Controls.Add(card)
+            card.BringToFront()
 
             grid = New DataGridView With {.Dock = DockStyle.Fill}
             UiTheme.StyleGrid(grid)
             AddHandler grid.CellDoubleClick, AddressOf Grid_CellDoubleClick
-            Me.Controls.Add(grid)
-            grid.BringToFront()
+            card.Controls.Add(grid)
 
-            lblCount = New Label With {.Dock = DockStyle.Bottom, .Height = 22, .ForeColor = UiTheme.TextMuted}
-            Me.Controls.Add(lblCount)
+            lblCount = New Label With {.Dock = DockStyle.Bottom, .Height = 28, .ForeColor = ClinicalUi.TextSoft, .TextAlign = ContentAlignment.MiddleLeft}
+            card.Controls.Add(lblCount)
+
+            ' (The hint used to sit at y=44 inside a 22px panel, i.e. outside it and never visible; it now shows above the table.)
+            Dim lblHint As New Label With {
+                .Text = "Double-click a Pending or Referred request to enter and release its result, or a Released one to view it (read-only).",
+                .ForeColor = ClinicalUi.TextSoft, .Dock = DockStyle.Top, .Height = 30, .TextAlign = ContentAlignment.MiddleLeft, .UseMnemonic = False
+            }
+            card.Controls.Add(lblHint)
         End Sub
 
         Private Sub LoadData()
