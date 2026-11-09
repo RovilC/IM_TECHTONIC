@@ -1,0 +1,149 @@
+@model RhuHealthRecords.Models.PatientRegistrationViewModel
+@{
+    ViewData["Title"] = "Patient Registration";
+    var steps = new[] { "Personal Information", "Contact & Address", "Health Information", "Review" };
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/patient-register.css" asp-append-version="true" />
+}
+
+<div class="pr-page">
+    <div class="pr-container">
+
+        @* Header row *@
+        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+            <div>
+                <h1 class="pr-title">Patient Registration</h1>
+                <p class="pr-subtitle mb-0">Register a new patient in the RHU Health Records System</p>
+            </div>
+            <a asp-action="Index" class="btn btn-sm btn-outline-secondary pr-btn-outline text-nowrap">&larr; Patient Directory</a>
+        </div>
+
+        @* Stepper *@
+        <div class="pr-card pr-stepper mb-3" id="stepper">
+            @for (int i = 0; i < steps.Length; i++)
+            {
+                <div class="pr-step @(i == 0 ? "active" : "")" data-step="@(i + 1)">
+                    <span class="pr-step-circle">@(i + 1)</span>
+                    <span class="pr-step-label d-none d-md-inline">@steps[i]</span>
+                </div>
+            }
+        </div>
+
+        <form asp-action="Register" method="post" id="registerForm" novalidate>
+            <div class="pr-card pr-form-card">
+
+                @* ---------- Step 1: Personal Information ---------- *@
+                <section class="pr-section" data-step="1">
+                    <h2 class="pr-section-title">Personal Information</h2>
+
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <label asp-for="PatientId" class="form-label">Patient ID <span class="pr-auto">(Auto)</span></label>
+                            <input asp-for="PatientId" class="form-control" readonly />
+                        </div>
+                        <div class="col-md-9">
+                            <label asp-for="PhilHealthNo" class="form-label"></label>
+                            <input asp-for="PhilHealthNo" class="form-control" placeholder="XX-XXXXXXXXX-X" maxlength="14" inputmode="numeric" autocomplete="off" />
+                            <span asp-validation-for="PhilHealthNo" class="pr-error"></span>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label asp-for="FirstName" class="form-label">First Name <span class="pr-req">*</span></label>
+                            <input asp-for="FirstName" class="form-control" placeholder="Juan" />
+                            <span asp-validation-for="FirstName" class="pr-error"></span>
+                        </div>
+                        <div class="col-md-3">
+                            <label asp-for="MiddleName" class="form-label"></label>
+                            <input asp-for="MiddleName" class="form-control" placeholder="Pedro" />
+                        </div>
+                        <div class="col-md-3">
+                            <label asp-for="LastName" class="form-label">Last Name <span class="pr-req">*</span></label>
+                            <input asp-for="LastName" class="form-control" placeholder="dela Cruz" />
+                            <span asp-validation-for="LastName" class="pr-error"></span>
+                        </div>
+                        <div class="col-md-3">
+                            <label asp-for="Suffix" class="form-label"></label>
+                            <select asp-for="Suffix" class="form-select">
+                                <option value="">None</option>
+                                <option>Jr.</option>
+                                <option>Sr.</option>
+                                <option>II</option>
+                                <option>III</option>
+                                <option>IV</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label asp-for="DateOfBirth" class="form-label">Date of Birth <span class="pr-req">*</span></label>
+                            <input asp-for="DateOfBirth" type="date" class="form-control" max="@DateTime.Today.ToString("yyyy-MM-dd")" />
+                            <span asp-validation-for="DateOfBirth" class="pr-error"></span>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="Age" class="form-label">Age <span class="pr-hint-inline">(Auto-computed)</span></label>
+                            <input id="Age" type="text" class="form-control" readonly placeholder="Select date of birth" tabindex="-1" />
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="Sex" class="form-label">Sex <span class="pr-req">*</span></label>
+                            <select asp-for="Sex" class="form-select">
+                                <option value="">Select sex...</option>
+                                <option>Male</option>
+                                <option>Female</option>
+                            </select>
+                            <span asp-validation-for="Sex" class="pr-error"></span>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label asp-for="CivilStatus" class="form-label"></label>
+                            <select asp-for="CivilStatus" class="form-select">
+                                <option>Single</option>
+                                <option>Married</option>
+                                <option>Widowed</option>
+                                <option>Separated</option>
+                                <option>Annulled</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label asp-for="Occupation" class="form-label"></label>
+                            <input asp-for="Occupation" class="form-control" placeholder="Farmer" />
+                        </div>
+                    </div>
+                </section>
+
+                @* ---------- Steps 2-4: placeholders ---------- *@
+                <section class="pr-section d-none" data-step="2">
+                    <h2 class="pr-section-title">Contact &amp; Address</h2>
+                    <div class="pr-placeholder"></div>
+                </section>
+                <section class="pr-section d-none" data-step="3">
+                    <h2 class="pr-section-title">Health Information</h2>
+                    <div class="pr-placeholder"></div>
+                </section>
+                <section class="pr-section d-none" data-step="4">
+                    <h2 class="pr-section-title">Review</h2>
+                    <div class="pr-placeholder"></div>
+                </section>
+
+                <hr class="pr-divider" />
+
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex gap-2">
+                        <button type="button" id="btnCancel" class="btn btn-sm btn-outline-secondary pr-btn-outline">Cancel</button>
+                        <button type="button" id="btnBack" class="btn btn-sm btn-outline-secondary pr-btn-outline d-none">&larr; Back</button>
+                    </div>
+                    <button type="button" id="btnNext" class="btn btn-primary pr-btn-primary">Next &rarr;</button>
+                    <button type="submit" id="btnSubmit" class="btn btn-primary pr-btn-primary d-none">Register Patient</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        window.patientRegister = { directoryUrl: '@Url.Action("Index", "Patients")' };
+    </script>
+    <script src="~/js/patient-register.js" asp-append-version="true"></script>
+}
