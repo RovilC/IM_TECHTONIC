@@ -18,6 +18,7 @@ Namespace Forms
             Me.onOpenEncounter = onOpenEncounter
             InitializeComponent()
             LoadData()
+
         End Sub
 
         Private Sub InitializeComponent()
